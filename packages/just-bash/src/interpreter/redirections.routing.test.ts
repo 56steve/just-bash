@@ -2,6 +2,36 @@ import { expect, it } from "vitest";
 import { Bash } from "../Bash.js";
 
 it.each([
+  "1</dev/null",
+  "1<<<input",
+  "1<<EOF",
+  "1<<-EOF",
+])("honors writable/read-only ordering with %s", async (input) => {
+  const suffix =
+    input.includes("<<EOF") || input.includes("<<-EOF") ? "\ninput\nEOF" : "";
+  for (const output of ["1<>/tmp/out", "1>/tmp/out"]) {
+    for (const readOnlyLast of [true, false]) {
+      const bash = new Bash();
+      const redirects = readOnlyLast
+        ? `${output} ${input}`
+        : `${input} ${output}`;
+      expect(
+        await bash.exec(`echo secret ${redirects}${suffix}`),
+      ).toMatchObject({
+        stdout: "",
+        stderr: readOnlyLast
+          ? "bash: echo: write error: Bad file descriptor\n"
+          : "",
+        exitCode: readOnlyLast ? 1 : 0,
+      });
+      expect(await bash.fs.readFile("/tmp/out")).toBe(
+        readOnlyLast ? "" : "secret\n",
+      );
+    }
+  }
+});
+
+it.each([
   ["cd /dev; { cd /tmp; echo hidden; } > null", undefined, undefined],
   ["cd /tmp; { cd /dev; echo kept; } > null", "kept\n", undefined],
   ["cd /tmp; { cd /dev; echo kept; } >> null", "seedkept\n", "seed"],

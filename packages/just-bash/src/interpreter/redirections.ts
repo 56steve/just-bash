@@ -1239,6 +1239,20 @@ export async function applyRedirections(
 
   for (let i = 0; i < redirections.length; i++) {
     const redir = redirections[i];
+    // Input opens can replace a writable standard descriptor. Replay them
+    // before skipping heredoc operands, which have no expanded target string.
+    if (
+      !redir.fdVariable &&
+      (redir.operator === "<" ||
+        redir.operator === "<<<" ||
+        redir.operator === "<<" ||
+        redir.operator === "<<-")
+    ) {
+      const fd = redir.fd ?? 0;
+      if (fd === 1) fd1Sink = { kind: "invalid-output", fd };
+      else if (fd === 2) fd2Sink = { kind: "invalid-output", fd };
+      continue;
+    }
     if (redir.target.type === "HereDoc") {
       continue;
     }
