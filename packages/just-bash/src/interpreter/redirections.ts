@@ -85,6 +85,8 @@ async function checkOutputRedirectTarget(
   return null;
 }
 
+const DEV_NULL = "/dev/null";
+
 /**
  * Determine the encoding to use for file I/O.
  * If all character codes are <= 127 (ASCII), use binary encoding (byte data).
@@ -214,6 +216,9 @@ async function openOutputEntry(
   handleWriteError = true,
 ): Promise<{ entry?: FdEntry; error?: ExecResult }> {
   const filePath = ctx.fs.resolvePath(ctx.state.cwd, target);
+  if (filePath === DEV_NULL) {
+    return { entry: { kind: "output", path: DEV_NULL, append } };
+  }
   const error = await checkOutputRedirectTarget(ctx, filePath, target, {
     checkNoclobber: !append,
     isClobber,
@@ -257,7 +262,8 @@ async function readInputEntry(
 ): Promise<{ entry?: FdEntry; error?: ExecResult }> {
   const filePath = ctx.fs.resolvePath(ctx.state.cwd, target);
   try {
-    const content = await ctx.fs.readFile(filePath);
+    const content =
+      filePath === DEV_NULL ? "" : await ctx.fs.readFile(filePath);
     return readwrite
       ? {
           entry: {
@@ -946,7 +952,10 @@ async function prepareRedirectionsWithState(
     } else if (redir.operator === "<") {
       const filePath = ctx.fs.resolvePath(ctx.state.cwd, target);
       try {
-        stdin = (await readBytesFrom(ctx.fs, filePath)) as unknown as string;
+        stdin =
+          filePath === DEV_NULL
+            ? ""
+            : ((await readBytesFrom(ctx.fs, filePath)) as unknown as string);
         stdinSourceFd = -1;
         persistStandard(effectiveFd, { kind: "input", content: stdin });
       } catch {
@@ -1164,20 +1173,27 @@ export async function applyRedirections(
     | { kind: "discard" };
   let fd1Sink: RedirectSink = { kind: "live-stdout" };
   let fd2Sink: RedirectSink = { kind: "live-stderr" };
+  const entrySink = (
+    source: Extract<PreparedDupSource, { kind: "entry" }>,
+  ): RedirectSink | null => {
+    const { entry } = source;
+    if (entry.kind === "dup-out") {
+      if (entry.sourceFd === 1) return { kind: "live-stdout" };
+      if (entry.sourceFd === 2) return { kind: "live-stderr" };
+      return null;
+    }
+    if (entry.kind === "output" || entry.kind === "readwrite") {
+      return entry.path === DEV_NULL
+        ? { kind: "discard" }
+        : { kind: "descriptor", source };
+    }
+    return null;
+  };
   const sinkFromDupSource = (
     source: PreparedDupSource | undefined,
   ): RedirectSink | null => {
     if (!source) return null;
-    if (source.kind === "entry") {
-      if (source.entry.kind === "dup-out") {
-        if (source.entry.sourceFd === 1) return { kind: "live-stdout" };
-        if (source.entry.sourceFd === 2) return { kind: "live-stderr" };
-      }
-      if (source.entry.kind === "output" || source.entry.kind === "readwrite") {
-        return { kind: "descriptor", source };
-      }
-      return null;
-    }
+    if (source.kind === "entry") return entrySink(source);
     if (source.fd === 1) return fd1Sink;
     if (source.fd === 2) return fd2Sink;
     return null;
@@ -1189,22 +1205,11 @@ export async function applyRedirections(
     if (entry.kind === "input" || entry.kind === "dup-in") {
       return { kind: "invalid-output", fd };
     }
-    if (entry.kind === "dup-out") {
-      if (entry.sourceFd === 1) return { kind: "live-stdout" };
-      if (entry.sourceFd === 2) return { kind: "live-stderr" };
-      return null;
-    }
-    if (entry.kind === "output" || entry.kind === "readwrite") {
-      return {
-        kind: "descriptor",
-        source: {
-          kind: "entry",
-          entry,
-          descriptors: getFdAliasMembers(ctx, fd),
-        },
-      };
-    }
-    return null;
+    return entrySink({
+      kind: "entry",
+      entry,
+      descriptors: getFdAliasMembers(ctx, fd),
+    });
   };
   fd1Sink = persistentSink(1) ?? fd1Sink;
   fd2Sink = persistentSink(2) ?? fd2Sink;
@@ -1250,9 +1255,9 @@ export async function applyRedirections(
           }
           break;
         }
-        // /dev/full always returns ENOSPC when written to. The diagnostic
-        // stays on live stderr and the fd's sink is left unchanged.
         if (target === "/dev/full") {
+          // /dev/full always returns ENOSPC when written to. The diagnostic
+          // stays on live stderr and the fd's sink is left unchanged.
           stderr += `bash: echo: write error: No space left on device\n`;
           exitCode = 1;
           if (fd === 1) {
@@ -1260,19 +1265,15 @@ export async function applyRedirections(
           }
           break;
         }
-        // /dev/null on fd 2 drops stderr without touching the VFS node.
-        // /dev/null on fd 1 intentionally falls through to the generic file
-        // path: in this VFS it is a regular file, not a true discard device
-        // (see overlay-fs.security.test.ts "/dev file overwrite behavior").
-        if (target === "/dev/null" && fd === 2) {
-          fd2Sink = { kind: "discard" };
-          break;
-        }
         const filePath = ctx.fs.resolvePath(ctx.state.cwd, target);
+        const sink: RedirectSink =
+          filePath === DEV_NULL
+            ? { kind: "discard" }
+            : { kind: "file", path: filePath, append: isAppend };
         if (fd === 1) {
-          fd1Sink = { kind: "file", path: filePath, append: isAppend };
+          fd1Sink = sink;
         } else {
-          fd2Sink = { kind: "file", path: filePath, append: isAppend };
+          fd2Sink = sink;
         }
         break;
       }
@@ -1299,16 +1300,17 @@ export async function applyRedirections(
         break;
       }
 
-      case "&>": {
-        const filePath = ctx.fs.resolvePath(ctx.state.cwd, target);
-        fd1Sink = { kind: "file", path: filePath, append: false };
-        fd2Sink = fd1Sink;
-        break;
-      }
-
+      case "&>":
       case "&>>": {
         const filePath = ctx.fs.resolvePath(ctx.state.cwd, target);
-        fd1Sink = { kind: "file", path: filePath, append: true };
+        fd1Sink =
+          filePath === DEV_NULL
+            ? { kind: "discard" }
+            : {
+                kind: "file",
+                path: filePath,
+                append: redir.operator === "&>>",
+              };
         fd2Sink = fd1Sink;
         break;
       }
