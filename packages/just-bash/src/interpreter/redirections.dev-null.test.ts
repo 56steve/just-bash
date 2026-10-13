@@ -25,6 +25,8 @@ function asyncOnlyPosixFs(): IFileSystem {
 }
 
 const cases: [script: string, stdout: string, stderr?: string][] = [
+  // Stream-device >| retains the descriptor's offset rather than truncating
+  // its file. This is the intentional policy difference from Linux Bash.
   [
     "printf abc >/f; (exec 1<>/f; set -C; printf X >|/dev/stdout); cat /f",
     "Xbc",
@@ -38,8 +40,14 @@ const cases: [script: string, stdout: string, stderr?: string][] = [
     "abc",
     "bash: /dev/stdout: cannot overwrite existing file\nrc=1\n",
   ],
-  ["printf abc >/f; (exec 1<>/f; printf X >>/dev/stdout); cat /f", "abcX"],
-  ["printf abc >/f; (exec 1<>/f; printf X 3>>/dev/stdout >&3); cat /f", "abcX"],
+  [
+    "printf abc >/f; (exec 1<>/f; printf X >>/dev/stdout; printf Y); cat /f",
+    "YbcX",
+  ],
+  [
+    "printf abc >/f; (exec 1<>/f; printf X 3>>/dev/stdout >&3; printf Y); cat /f",
+    "YbcX",
+  ],
   ["echo hi >/dev/stderr 2>/err; cat /err", "", "hi\n"],
   ["echo hi >/dev/stderr 2>/dev/null", "", "hi\n"],
   ["echo hi 2>/dev/null >/dev/stderr", ""],

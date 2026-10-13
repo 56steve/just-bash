@@ -2,7 +2,7 @@
 "just-bash": patch
 ---
 
-Redirect to `/dev/null`, `/dev/stdout`, and `/dev/stderr` without touching the filesystem
+Redirect to `/dev/null`, `/dev/stdout`, and `/dev/stderr` without requiring filesystem device nodes
 
 On an `IFileSystem` without `mkdirSync` and `writeFileSync`, `/dev` is never seeded. On such a filesystem, every redirect to `/dev/null` made `exec()` reject with `ENOENT`. That covered `> /dev/null`, `2> /dev/null`, `&> /dev/null`, `exec > /dev/null`, and `exec 3> /dev/null`. So did `&> /dev/stderr` and `&>> /dev/stdout`. `< /dev/null` failed with "No such file or directory".
 

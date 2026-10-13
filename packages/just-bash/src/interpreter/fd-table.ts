@@ -382,10 +382,13 @@ export async function writeFdEntry(
   const writeEntry = liveEntry ?? entry;
   if (writeEntry.kind !== "readwrite") return false;
 
+  // Independent opens can change the file without moving this descriptor's
+  // offset. Preserve those changes outside the range being overwritten.
+  const currentContent = await ctx.fs.readFile(writeEntry.path, encoding);
   const updatedContent =
-    writeEntry.content.slice(0, writeEntry.position) +
+    currentContent.slice(0, writeEntry.position) +
     content +
-    writeEntry.content.slice(writeEntry.position + content.length);
+    currentContent.slice(writeEntry.position + content.length);
   const updated: FdEntry = {
     ...writeEntry,
     position: writeEntry.position + content.length,
