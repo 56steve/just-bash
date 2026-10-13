@@ -257,16 +257,8 @@ export function setFdEntry(
   ctx: InterpreterContext,
   fd: number,
   entry: FdEntry,
-  descriptors: number[] = [],
 ): void {
   setRawFd(ctx, fd, encodeFdEntry(entry), entry.kind === "input");
-  // Device opens that duplicate an existing description retain its offset
-  // across commands, not just during the first output delivery.
-  for (const sourceFd of descriptors) {
-    if (sourceFd !== fd && isFdOpen(ctx, sourceFd)) {
-      joinAliasGroup(ctx, fd, sourceFd);
-    }
-  }
 }
 
 export function closeFd(ctx: InterpreterContext, fd: number): void {
@@ -390,13 +382,10 @@ export async function writeFdEntry(
   const writeEntry = liveEntry ?? entry;
   if (writeEntry.kind !== "readwrite") return false;
 
-  // Independent opens can change the file without moving this descriptor's
-  // offset. Preserve those changes outside the range being overwritten.
-  const currentContent = await ctx.fs.readFile(writeEntry.path, encoding);
   const updatedContent =
-    currentContent.slice(0, writeEntry.position) +
+    writeEntry.content.slice(0, writeEntry.position) +
     content +
-    currentContent.slice(writeEntry.position + content.length);
+    writeEntry.content.slice(writeEntry.position + content.length);
   const updated: FdEntry = {
     ...writeEntry,
     position: writeEntry.position + content.length,

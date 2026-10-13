@@ -2,19 +2,6 @@
 "just-bash": patch
 ---
 
-Redirect to `/dev/null`, `/dev/stdout`, and `/dev/stderr` without requiring filesystem device nodes
+Treat `/dev/null` redirects as a discard/EOF device without requiring filesystem device nodes. Output redirects discard data, input redirects return EOF, and read-write redirects support both behaviors. This works on filesystems that cannot initialize `/dev`, preserves command exit statuses, and prevents append redirects from growing a backing file.
 
-On an `IFileSystem` without `mkdirSync` and `writeFileSync`, `/dev` is never seeded. On such a filesystem, every redirect to `/dev/null` made `exec()` reject with `ENOENT`. That covered `> /dev/null`, `2> /dev/null`, `&> /dev/null`, `exec > /dev/null`, and `exec 3> /dev/null`. So did `&> /dev/stderr` and `&>> /dev/stdout`. `< /dev/null` failed with "No such file or directory".
-
-```js
-const bash = new Bash({ fs: asyncOnlyFs });
-await bash.exec("ls /nope > /dev/null 2>&1; echo rc=$?");
-// was: rejects with ENOENT: no such file or directory, '/dev'
-// now: stdout "rc=2\n"
-```
-
-The redirect layer now treats these paths as devices. Output sent to `/dev/null` is discarded, and `< /dev/null` reads as empty input. On the default filesystem, `>> /dev/null` no longer grows a file, so `cat /dev/null` stays empty. The resolved path decides, so `cd /dev; echo x > null` also discards. `set -o noclobber` allows `> /dev/stdout` when stdout is a stream or `/dev/null`, but blocks reopening a regular file, including one opened with `<>`. Stream-device redirects retain the destination captured when opened, and `>>` appends even when the source descriptor was opened read-write.
-
-Commands that open `/dev/null` by path, such as `cat /dev/null` and `test -e /dev/null`, still need the filesystem to provide it.
-
-Stream-device support covers output redirects. Input redirects from `/dev/stdout` and `/dev/stderr` still depend on filesystem entries. Output stream-device opens retain shared offsets across standard, numeric, and allocated descriptors, including persistent `exec` opens.
+This change covers redirect operators only. Commands that access `/dev/null` by path, such as `cat`, `cp`, and `test -e`, still depend on filesystem entries. `/dev/stdout` and `/dev/stderr` retain their existing behavior; stream-device identity and offset handling are separate work.

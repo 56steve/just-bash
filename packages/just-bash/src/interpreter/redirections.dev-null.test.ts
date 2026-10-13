@@ -11,10 +11,18 @@ function asyncOnlyPosixFs(): IFileSystem {
       if (key === "writeFile" || key === "appendFile") {
         return async (...args: Parameters<IFileSystem["writeFile"]>) => {
           const path = args[0];
+          if (path === "/dev/null")
+            throw new Error("device write reached filesystem");
           const parent = path.slice(0, path.lastIndexOf("/")) || "/";
-          if (!(await target.exists(parent))) {
+          if (!(await target.exists(parent)))
             throw new Error(`ENOENT: no such file or directory, '${parent}'`);
-          }
+          return target[key](...args);
+        };
+      }
+      if (key === "readFile" || key === "readFileBuffer") {
+        return async (...args: Parameters<IFileSystem["readFile"]>) => {
+          if (args[0] === "/dev/null")
+            throw new Error("device read reached filesystem");
           return target[key](...args);
         };
       }
@@ -24,46 +32,7 @@ function asyncOnlyPosixFs(): IFileSystem {
   });
 }
 
-const cases: [script: string, stdout: string, stderr?: string][] = [
-  // These shared-offset expectations follow the descriptor-duplication policy,
-  // not Linux's independent reopen of a stream-device path.
-  ...[
-    "printf X >/dev/stdout",
-    "printf X 3>/dev/stdout >&3",
-    "printf X {fd}>/dev/stdout >&$fd",
-    "printf X >&/dev/stdout",
-    "exec 3>/dev/stdout; printf X >&3",
-    "exec {fd}>/dev/stdout; printf X >&$fd",
-  ].map((write): [string, string] => [
-    `printf abc >/f; (exec 1<>/f; ${write}; printf Y); cat /f`,
-    "XYc",
-  ]),
-  // Stream-device >| retains the descriptor's offset rather than truncating
-  // its file. This is the intentional policy difference from Linux Bash.
-  [
-    "printf abc >/f; (exec 1<>/f; set -C; printf X >|/dev/stdout); cat /f",
-    "Xbc",
-  ],
-  [
-    "printf abc >/f; (exec 1<>/f; set -C; printf X >>/dev/stdout); cat /f",
-    "abcX",
-  ],
-  [
-    "printf abc >/f; (exec 1<>/f; set -C; printf X >/dev/stdout; echo rc=$? >&2); cat /f",
-    "abc",
-    "bash: /dev/stdout: cannot overwrite existing file\nrc=1\n",
-  ],
-  [
-    "printf abc >/f; (exec 1<>/f; printf X >>/dev/stdout; printf Y); cat /f",
-    "YbcX",
-  ],
-  [
-    "printf abc >/f; (exec 1<>/f; printf X 3>>/dev/stdout >&3; printf Y); cat /f",
-    "YbcX",
-  ],
-  ["echo hi >/dev/stderr 2>/err; cat /err", "", "hi\n"],
-  ["echo hi >/dev/stderr 2>/dev/null", "", "hi\n"],
-  ["echo hi 2>/dev/null >/dev/stderr", ""],
+const cases: [string, string][] = [
   ["echo x > /dev/null; echo after", "after\n"],
   ["echo x >| /dev/null; echo after", "after\n"],
   ["echo x >> /dev/null; echo after", "after\n"],
@@ -77,57 +46,27 @@ const cases: [script: string, stdout: string, stderr?: string][] = [
   ["set -o noclobber; echo x > /dev/null; echo rc=$?", "rc=0\n"],
   ["exec > /dev/null; echo hidden", ""],
   ["exec 3> /dev/null; echo y >&3; echo after", "after\n"],
+  ["exec {fd}> /dev/null; echo y >&$fd; echo after", "after\n"],
   ["exec 3<> /dev/null; echo hi >&3; cat <&3; echo rc=$?", "rc=0\n"],
   ["wc -c < /dev/null", "0\n"],
   ["read -r v < /dev/null; echo rc=$? v=[$v]", "rc=1 v=[]\n"],
-  ["echo x &> /dev/stderr; echo after", "after\n", "x\n"],
-  ["echo x &>> /dev/stdout; echo after", "x\nafter\n"],
-  ["echo x 2> /dev/stdout; echo after", "x\nafter\n"],
-  ["echo hi > /out 3> /dev/stdout >&3; echo [$(cat /out)]", "[hi]\n"],
-  ["(exec > /out; exec > /dev/stdout; echo hi); echo [$(cat /out)]", "[hi]\n"],
-  [
-    "(exec > /out; set -o noclobber; echo x > /dev/stdout; echo rc=$? >&2); cat /out",
-    "",
-    "bash: /dev/stdout: cannot overwrite existing file\nrc=1\n",
-  ],
 ];
 
-describe("/dev redirections on a filesystem without /dev", () => {
-  it.each(cases)("%s", async (script, stdout, stderr = "") => {
-    const fs = asyncOnlyPosixFs();
-    const result = await new Bash({ fs }).exec(script);
-    expect(result).toMatchObject({ stdout, stderr, exitCode: 0 });
-    expect(await fs.exists("/dev")).toBe(false);
-  });
+it("discards relative redirects resolved to /dev/null", async () => {
+  const result = await new Bash().exec(
+    "cd /dev; echo x > null; wc -c < /dev/null",
+  );
+  expect(result).toMatchObject({ stdout: "0\n", stderr: "", exitCode: 0 });
 });
 
-describe("/dev redirections on the default filesystem", () => {
-  it.each<[script: string, stdout: string, stderr?: string]>([
-    ...cases,
-    ["cd /dev && echo x > null; wc -c < /dev/null", "0\n"],
-    ["cd /dev && echo x > stdout", "x\n"],
-    ["set -o noclobber; echo x > /dev/stdout; echo rc=$?", "x\nrc=0\n"],
-    [
-      "mkdir /tmp/w && cd /tmp/w && { cd /dev; echo hi; } > stdout; echo [$(cat /tmp/w/stdout)]",
-      "[hi]\n",
-    ],
-    [
-      "mkdir /tmp/w && cd /tmp/w && f() { cd /dev; echo hi; }; f > null; echo [$(cat /tmp/w/null)]",
-      "[hi]\n",
-    ],
-    [
-      "(exec > /tmp/out; cd /dev; exec > stdout; echo hi); echo [$(cat /tmp/out)]",
-      "[hi]\n",
-    ],
-  ])("%s", async (script, stdout, stderr = "") => {
-    const result = await new Bash().exec(script);
-    expect(result).toMatchObject({ stdout, stderr, exitCode: 0 });
-  });
-
-  it("discards appended output instead of accumulating it", async () => {
-    const result = await new Bash().exec(
-      "for i in $(seq 1 100); do echo line-$i >> /dev/null; done; echo hello > /dev/null; wc -c < /dev/null; cat /dev/null",
-    );
-    expect(result.stdout).toBe("0\n");
+describe.each([
+  "default",
+  "unseeded",
+])("/dev/null redirects (%s filesystem)", (kind) => {
+  it.each(cases)("%s", async (script, stdout) => {
+    const fs = kind === "unseeded" ? asyncOnlyPosixFs() : new InMemoryFs();
+    const result = await new Bash({ fs }).exec(script);
+    expect(result).toMatchObject({ stdout, stderr: "", exitCode: 0 });
+    if (kind === "unseeded") expect(await fs.exists("/dev")).toBe(false);
   });
 });

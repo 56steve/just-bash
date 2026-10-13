@@ -7,14 +7,6 @@ import { Bash } from "../Bash.js";
  * number is writable through `>&N` for as long as it is open.
  */
 describe("numeric output file descriptors", () => {
-  it("preserves independent file changes and shared read-write offsets", async () => {
-    const result = await new Bash().exec(
-      "printf abc >/f; exec 3<>/f; exec 4>&3; printf Z >&3; printf X >>/f; printf Y >&4; cat /f",
-    );
-    expect(result.stdout).toBe("ZYcX");
-    expect(result.stderr).toBe("");
-    expect(result.exitCode).toBe(0);
-  });
   it("appends successive writes through a descriptor opened with exec N>", async () => {
     const env = new Bash();
     const result = await env.exec(
