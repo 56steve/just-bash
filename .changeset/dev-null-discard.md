@@ -13,6 +13,6 @@ await bash.exec("ls /nope > /dev/null 2>&1; echo rc=$?");
 // now: stdout "rc=2\n"
 ```
 
-The redirect layer now treats these paths as devices. Output sent to `/dev/null` is discarded, and `< /dev/null` reads as empty input. On the default filesystem, `>> /dev/null` no longer grows a file, so `cat /dev/null` stays empty. The resolved path decides, so `cd /dev; echo x > null` also discards. `set -o noclobber` no longer blocks `> /dev/stdout`.
+The redirect layer now treats these paths as devices. Output sent to `/dev/null` is discarded, and `< /dev/null` reads as empty input. On the default filesystem, `>> /dev/null` no longer grows a file, so `cat /dev/null` stays empty. The resolved path decides, so `cd /dev; echo x > null` also discards. `set -o noclobber` allows `> /dev/stdout` when stdout is a stream or `/dev/null`, but blocks reopening a regular file, including one opened with `<>`. Stream-device redirects retain the destination captured when opened, and `>>` appends even when the source descriptor was opened read-write.
 
 Commands that open `/dev/null` by path, such as `cat /dev/null` and `test -e /dev/null`, still need the filesystem to provide it.

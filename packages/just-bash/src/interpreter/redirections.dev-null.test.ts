@@ -25,6 +25,24 @@ function asyncOnlyPosixFs(): IFileSystem {
 }
 
 const cases: [script: string, stdout: string, stderr?: string][] = [
+  [
+    "printf abc >/f; (exec 1<>/f; set -C; printf X >|/dev/stdout); cat /f",
+    "Xbc",
+  ],
+  [
+    "printf abc >/f; (exec 1<>/f; set -C; printf X >>/dev/stdout); cat /f",
+    "abcX",
+  ],
+  [
+    "printf abc >/f; (exec 1<>/f; set -C; printf X >/dev/stdout; echo rc=$? >&2); cat /f",
+    "abc",
+    "bash: /dev/stdout: cannot overwrite existing file\nrc=1\n",
+  ],
+  ["printf abc >/f; (exec 1<>/f; printf X >>/dev/stdout); cat /f", "abcX"],
+  ["printf abc >/f; (exec 1<>/f; printf X 3>>/dev/stdout >&3); cat /f", "abcX"],
+  ["echo hi >/dev/stderr 2>/err; cat /err", "", "hi\n"],
+  ["echo hi >/dev/stderr 2>/dev/null", "", "hi\n"],
+  ["echo hi 2>/dev/null >/dev/stderr", ""],
   ["echo x > /dev/null; echo after", "after\n"],
   ["echo x >| /dev/null; echo after", "after\n"],
   ["echo x >> /dev/null; echo after", "after\n"],

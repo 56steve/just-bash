@@ -235,7 +235,7 @@ async function openOutputEntry(
   isClobber: boolean,
   dupSource: (sourceFd: number, input: boolean) => PreparedDupSource | null,
   handleWriteError = true,
-): Promise<{ entry?: FdEntry; error?: ExecResult }> {
+): Promise<{ entry?: FdEntry; error?: ExecResult; descriptors?: number[] }> {
   const resolved = resolveRedirectTarget(ctx, target);
   switch (resolved.kind) {
     case "null":
@@ -260,7 +260,7 @@ async function openOutputEntry(
       }
       const { entry } = source;
       if (
-        entry.kind === "output" &&
+        (entry.kind === "output" || entry.kind === "readwrite") &&
         entry.path !== DEV_NULL &&
         !append &&
         !isClobber &&
@@ -274,7 +274,13 @@ async function openOutputEntry(
           ),
         };
       }
-      return { entry };
+      if (entry.kind === "readwrite" && append) {
+        return { entry: { kind: "output", path: entry.path, append: true } };
+      }
+      if (entry.kind === "output") {
+        return { entry: { ...entry, append: true } };
+      }
+      return { entry, descriptors: source.descriptors };
     }
   }
   const filePath = resolved.path;
@@ -1007,6 +1013,11 @@ async function prepareRedirectionsWithState(
       );
       if (opened.error) return fail(opened.error, index);
       const entry = opened.entry as FdEntry;
+      dupSources.set(index, {
+        kind: "entry",
+        entry,
+        descriptors: opened.descriptors ?? [],
+      });
       if (redir.operator === "&>" || redir.operator === "&>>") {
         persistStandard(1, entry);
         persistStandard(2, entry);
@@ -1244,21 +1255,6 @@ export async function applyRedirections(
     | { kind: "discard" };
   let fd1Sink: RedirectSink = { kind: "live-stdout" };
   let fd2Sink: RedirectSink = { kind: "live-stderr" };
-  // /dev/full never reaches here: prepare already failed the command.
-  // /dev/stdout and /dev/stderr duplicate the current fd 1 / fd 2 sink, like
-  // `N>&1` / `N>&2`.
-  const targetSink = (path: string, append: boolean): RedirectSink => {
-    const resolved = classifyRedirectPath(path);
-    switch (resolved.kind) {
-      case "null":
-      case "full":
-        return { kind: "discard" };
-      case "stream":
-        return resolved.fd === 1 ? fd1Sink : fd2Sink;
-      case "file":
-        return { kind: "file", path: resolved.path, append };
-    }
-  };
   const entrySink = (
     source: Extract<PreparedDupSource, { kind: "entry" }>,
   ): RedirectSink | null => {
@@ -1283,6 +1279,19 @@ export async function applyRedirections(
     if (source.fd === 1) return fd1Sink;
     if (source.fd === 2) return fd2Sink;
     return null;
+  };
+  // Output opens already captured both the destination and its write mode.
+  // Do not resolve stream devices against the final descriptor routes again.
+  const targetSink = (index: number): RedirectSink | null => {
+    const source = dupSources.get(index);
+    if (!source || source.kind !== "entry") return null;
+    const { entry } = source;
+    if (entry.kind === "output") {
+      return entry.path === DEV_NULL
+        ? { kind: "discard" }
+        : { kind: "file", path: entry.path, append: entry.append };
+    }
+    return entrySink(source);
   };
   const persistentSink = (fd: 1 | 2): RedirectSink | null => {
     const entry = standardRoutes.get(fd) ?? getFdEntry(ctx, fd);
@@ -1323,7 +1332,8 @@ export async function applyRedirections(
         if (fd !== 1 && fd !== 2) {
           break;
         }
-        const sink = targetSink(target, redir.operator === ">>");
+        const sink = targetSink(i);
+        if (!sink) break;
         if (fd === 1) {
           fd1Sink = sink;
         } else {
@@ -1356,7 +1366,9 @@ export async function applyRedirections(
 
       case "&>":
       case "&>>": {
-        fd1Sink = targetSink(target, redir.operator === "&>>");
+        const sink = targetSink(i);
+        if (!sink) break;
+        fd1Sink = sink;
         fd2Sink = fd1Sink;
         break;
       }
