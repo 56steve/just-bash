@@ -111,8 +111,11 @@ function getFileEncoding(content: string): "binary" | "utf8" {
   return "binary";
 }
 
-/** Expanded targets keyed by their position in the original redirection list. */
-export type ExpandedRedirectTargets = Map<number, string>;
+/** Expanded operands retain an opened output path separately from device syntax. */
+export type ExpandedRedirectTargets = Map<
+  number,
+  string | { operand: string; path: string }
+>;
 
 type PreparedDupSource =
   | { kind: "standard"; fd: number }
@@ -926,6 +929,8 @@ async function prepareRedirectionsWithState(
       );
       if (opened.error) return fail(opened.error, index);
       const entry = opened.entry as FdEntry;
+      if (entry.kind === "output")
+        targets.set(index, { operand: target, path: entry.path });
       if (redir.operator === "&>" || redir.operator === "&>>") {
         persistStandard(1, entry);
         persistStandard(2, entry);
@@ -1216,8 +1221,12 @@ export async function applyRedirections(
       continue;
     }
 
-    const target = targets.get(i);
-    if (target === undefined) continue;
+    const preparedTarget = targets.get(i);
+    if (preparedTarget === undefined) continue;
+    const target =
+      typeof preparedTarget === "string"
+        ? preparedTarget
+        : preparedTarget.operand;
 
     switch (redir.operator) {
       case ">":
@@ -1255,7 +1264,8 @@ export async function applyRedirections(
           }
           break;
         }
-        const filePath = ctx.fs.resolvePath(ctx.state.cwd, target);
+        const filePath =
+          typeof preparedTarget === "string" ? target : preparedTarget.path;
         const sink: RedirectSink =
           filePath === DEV_NULL
             ? { kind: "discard" }
@@ -1292,7 +1302,8 @@ export async function applyRedirections(
 
       case "&>":
       case "&>>": {
-        const filePath = ctx.fs.resolvePath(ctx.state.cwd, target);
+        const filePath =
+          typeof preparedTarget === "string" ? target : preparedTarget.path;
         fd1Sink =
           filePath === DEV_NULL
             ? { kind: "discard" }
