@@ -726,6 +726,7 @@ export class Interpreter {
           baseResult,
           node.redirections,
           preparedRedirections.targets,
+          preparedRedirections.outputDestinations,
           preparedRedirections.dupSources,
           preparedRedirections.standardRoutes,
         );
@@ -993,6 +994,7 @@ export class Interpreter {
       cmdResult,
       node.redirections,
       preparedRedirections.targets,
+      preparedRedirections.outputDestinations,
       preparedRedirections.dupSources,
       preparedRedirections.standardRoutes,
       cmdResult.internalProducerCommand ?? commandName,

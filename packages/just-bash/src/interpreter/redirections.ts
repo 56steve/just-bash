@@ -121,7 +121,13 @@ type PreparedDupSource =
 
 export type PreparedDupSources = Map<number, PreparedDupSource>;
 
+type PreparedOutputDestinations = Map<
+  number,
+  Extract<FdEntry, { kind: "output" | "readwrite" | "dup-out" }>
+>;
+
 export type PreparedRedirections = {
+  outputDestinations: PreparedOutputDestinations;
   targets: ExpandedRedirectTargets;
   dupSources: PreparedDupSources;
   standardRoutes: Map<number, FdEntry>;
@@ -334,6 +340,8 @@ async function prepareRedirectionsWithState(
   transaction: RedirectionTransactionState,
 ): Promise<PreparedRedirections> {
   const targets: ExpandedRedirectTargets = new Map();
+  // Retain opened destinations without changing the expanded diagnostic operands.
+  const outputDestinations: PreparedOutputDestinations = new Map();
   const dupSources: PreparedDupSources = new Map();
   const standardRoute = (fd: number, fallback: FdEntry): FdEntry =>
     ctx.state.closedStandardFds?.has(fd)
@@ -357,6 +365,7 @@ async function prepareRedirectionsWithState(
   }
   const base = (): PreparedRedirections => ({
     targets,
+    outputDestinations,
     dupSources,
     standardRoutes,
     stdin,
@@ -375,6 +384,7 @@ async function prepareRedirectionsWithState(
         error,
         redirections.slice(0, index),
         targets,
+        outputDestinations,
         dupSources,
         standardRoutes,
       ),
@@ -936,7 +946,16 @@ async function prepareRedirectionsWithState(
       );
       if (opened.error) return fail(opened.error, index);
       const entry = opened.entry as FdEntry;
+      if (entry.kind === "output" || entry.kind === "dup-out")
+        outputDestinations.set(index, entry);
       if (redir.operator === "&>" || redir.operator === "&>>") {
+        if (entry.kind === "dup-out") {
+          outputDestinations.set(index, {
+            kind: "output",
+            path: ctx.fs.resolvePath(ctx.state.cwd, target),
+            append: redir.operator === "&>>",
+          });
+        }
         persistStandard(1, entry);
         persistStandard(2, entry);
       } else {
@@ -968,6 +987,7 @@ async function prepareRedirectionsWithState(
       const opened = await readInputEntry(ctx, target, true);
       if (opened.error) return fail(opened.error, index);
       const entry = opened.entry as FdEntry;
+      if (entry.kind === "readwrite") outputDestinations.set(index, entry);
       persistStandard(effectiveFd, entry);
       if (effectiveFd === 0 && entry.kind === "readwrite") {
         stdin = entry.content;
@@ -1057,6 +1077,7 @@ export async function routeControlFlowError(
     makeResult(error.stdout, error.stderr, exitCode),
     redirections,
     prepared.targets,
+    prepared.outputDestinations,
     prepared.dupSources,
     prepared.standardRoutes,
   );
@@ -1096,6 +1117,7 @@ export async function withPreparedRedirections(
         result,
         redirections,
         prepared.targets,
+        prepared.outputDestinations,
         prepared.dupSources,
         prepared.standardRoutes,
       );
@@ -1119,6 +1141,7 @@ export async function applyRedirections(
   result: ExecResult,
   redirections: RedirectionNode[],
   targets: ExpandedRedirectTargets,
+  outputDestinations: PreparedOutputDestinations,
   dupSources: PreparedDupSources = new Map(),
   standardRoutes: Map<number, FdEntry> = new Map(),
   writeErrorCommand = "bash",
@@ -1265,7 +1288,10 @@ export async function applyRedirections(
           }
           break;
         }
-        const filePath = ctx.fs.resolvePath(ctx.state.cwd, target);
+        const destination = outputDestinations.get(i);
+        if (!destination || destination.kind !== "output")
+          throw new Error("Missing prepared output destination");
+        const filePath = destination.path;
         const sink: RedirectSink =
           filePath === DEV_NULL
             ? { kind: "discard" }
@@ -1302,7 +1328,10 @@ export async function applyRedirections(
 
       case "&>":
       case "&>>": {
-        const filePath = ctx.fs.resolvePath(ctx.state.cwd, target);
+        const destination = outputDestinations.get(i);
+        if (!destination || destination.kind !== "output")
+          throw new Error("Missing prepared output destination");
+        const filePath = destination.path;
         fd1Sink =
           filePath === DEV_NULL
             ? { kind: "discard" }
@@ -1312,6 +1341,19 @@ export async function applyRedirections(
                 append: redir.operator === "&>>",
               };
         fd2Sink = fd1Sink;
+        break;
+      }
+      case "<>": {
+        const fd = redir.fd ?? 0;
+        if (fd !== 1 && fd !== 2) break;
+        const entry = outputDestinations.get(i);
+        if (!entry || entry.kind !== "readwrite")
+          throw new Error("Missing prepared read-write destination");
+        const sink = entrySink({ kind: "entry", entry, descriptors: [] });
+        if (sink) {
+          if (fd === 1) fd1Sink = sink;
+          else fd2Sink = sink;
+        }
         break;
       }
     }

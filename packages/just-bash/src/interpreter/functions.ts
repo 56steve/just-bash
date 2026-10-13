@@ -208,6 +208,7 @@ export async function callFunction(
       execResult,
       func.redirections,
       prepared.targets,
+      prepared.outputDestinations,
       prepared.dupSources,
       prepared.standardRoutes,
     );
