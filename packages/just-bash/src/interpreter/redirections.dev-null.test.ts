@@ -52,6 +52,17 @@ const cases: [string, string][] = [
   ["read -r v < /dev/null; echo rc=$? v=[$v]", "rc=1 v=[]\n"],
 ];
 
+it("preserves a backing /dev/null file across discard and read-write redirects", async () => {
+  const fs = new InMemoryFs();
+  const bash = new Bash({ fs });
+  await fs.writeFile("/dev/null", "sentinel");
+  const result = await bash.exec(
+    "echo overwrite >/dev/null; echo append >>/dev/null; exec 3<>/dev/null; echo readwrite >&3; wc -c <&3; exec 3>&-",
+  );
+  expect(result).toMatchObject({ stdout: "0\n", stderr: "", exitCode: 0 });
+  expect(await fs.readFile("/dev/null")).toBe("sentinel");
+});
+
 it("discards relative redirects resolved to /dev/null", async () => {
   const result = await new Bash().exec(
     "cd /dev; echo x > null; wc -c < /dev/null",
