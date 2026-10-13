@@ -446,7 +446,11 @@ async function prepareRedirectionsWithState(
       cause,
     );
   };
-  const persistStandard = (fd: number | null, entry: FdEntry): void => {
+  const persistStandard = (
+    fd: number | null,
+    entry: FdEntry,
+    descriptors: number[] = [],
+  ): void => {
     if (fd !== null && fd < FIRST_USER_FD) standardRoutes.set(fd, entry);
     if (
       transaction.policy === "persistent" &&
@@ -454,7 +458,7 @@ async function prepareRedirectionsWithState(
       fd < FIRST_USER_FD
     ) {
       ctx.state.closedStandardFds?.delete(fd);
-      setFdEntry(ctx, fd, entry);
+      setFdEntry(ctx, fd, entry, descriptors);
     }
   };
   const bindTemporaryStandard = (fd: number, entry: FdEntry): void => {
@@ -631,6 +635,7 @@ async function prepareRedirectionsWithState(
         );
       }
       let entry: FdEntry | undefined;
+      let descriptors: number[] = [];
       let duplicate: { sourceFd: number; move: boolean } | undefined;
 
       if (isDup) {
@@ -651,6 +656,7 @@ async function prepareRedirectionsWithState(
           );
           if (opened.error) return fail(opened.error, index);
           entry = opened.entry;
+          descriptors = opened.descriptors ?? [];
         } else {
           const source = getPreparedDupSource(
             parsed.sourceFd,
@@ -693,6 +699,7 @@ async function prepareRedirectionsWithState(
         );
         if (opened.error) return fail(opened.error, index);
         entry = opened.entry;
+        descriptors = opened.descriptors ?? [];
       } else if (redir.operator === "<<<") {
         entry = { kind: "input", content: `${target}\n` };
       } else if (redir.operator === "<" || redir.operator === "<>") {
@@ -720,7 +727,7 @@ async function prepareRedirectionsWithState(
           );
         }
       } else if (entry) {
-        setFdEntry(ctx, fd, entry);
+        setFdEntry(ctx, fd, entry, descriptors);
       }
       if (
         duplicate?.move &&
@@ -784,7 +791,7 @@ async function prepareRedirectionsWithState(
             getPreparedDupSource,
           );
           if (opened.error) return fail(opened.error, index);
-          setFdEntry(ctx, fd, opened.entry as FdEntry);
+          setFdEntry(ctx, fd, opened.entry as FdEntry, opened.descriptors);
           continue;
         }
         const source = getPreparedDupSource(
@@ -844,7 +851,7 @@ async function prepareRedirectionsWithState(
           getPreparedDupSource,
         );
         if (opened.error) return fail(opened.error, index);
-        setFdEntry(ctx, fd, opened.entry as FdEntry);
+        setFdEntry(ctx, fd, opened.entry as FdEntry, opened.descriptors);
       } else if (redir.operator === "<<<") {
         setFdEntry(ctx, fd, { kind: "input", content: `${target}\n` });
       } else if (redir.operator === "<" || redir.operator === "<>") {
@@ -896,13 +903,13 @@ async function prepareRedirectionsWithState(
         dupSources.set(index, {
           kind: "entry",
           entry,
-          descriptors: [],
+          descriptors: opened.descriptors ?? [],
         });
         if (redir.fd == null) {
-          persistStandard(1, entry);
-          persistStandard(2, entry);
+          persistStandard(1, entry, opened.descriptors);
+          persistStandard(2, entry, opened.descriptors);
         } else {
-          persistStandard(effectiveFd, entry);
+          persistStandard(effectiveFd, entry, opened.descriptors);
         }
         continue;
       }
@@ -1019,10 +1026,10 @@ async function prepareRedirectionsWithState(
         descriptors: opened.descriptors ?? [],
       });
       if (redir.operator === "&>" || redir.operator === "&>>") {
-        persistStandard(1, entry);
-        persistStandard(2, entry);
+        persistStandard(1, entry, opened.descriptors);
+        persistStandard(2, entry, opened.descriptors);
       } else {
-        persistStandard(effectiveFd, entry);
+        persistStandard(effectiveFd, entry, opened.descriptors);
       }
       continue;
     }

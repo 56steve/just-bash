@@ -25,6 +25,19 @@ function asyncOnlyPosixFs(): IFileSystem {
 }
 
 const cases: [script: string, stdout: string, stderr?: string][] = [
+  // These shared-offset expectations follow the descriptor-duplication policy,
+  // not Linux's independent reopen of a stream-device path.
+  ...[
+    "printf X >/dev/stdout",
+    "printf X 3>/dev/stdout >&3",
+    "printf X {fd}>/dev/stdout >&$fd",
+    "printf X >&/dev/stdout",
+    "exec 3>/dev/stdout; printf X >&3",
+    "exec {fd}>/dev/stdout; printf X >&$fd",
+  ].map((write): [string, string] => [
+    `printf abc >/f; (exec 1<>/f; ${write}; printf Y); cat /f`,
+    "XYc",
+  ]),
   // Stream-device >| retains the descriptor's offset rather than truncating
   // its file. This is the intentional policy difference from Linux Bash.
   [

@@ -257,8 +257,16 @@ export function setFdEntry(
   ctx: InterpreterContext,
   fd: number,
   entry: FdEntry,
+  descriptors: number[] = [],
 ): void {
   setRawFd(ctx, fd, encodeFdEntry(entry), entry.kind === "input");
+  // Device opens that duplicate an existing description retain its offset
+  // across commands, not just during the first output delivery.
+  for (const sourceFd of descriptors) {
+    if (sourceFd !== fd && isFdOpen(ctx, sourceFd)) {
+      joinAliasGroup(ctx, fd, sourceFd);
+    }
+  }
 }
 
 export function closeFd(ctx: InterpreterContext, fd: number): void {
