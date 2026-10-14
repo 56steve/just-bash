@@ -11,7 +11,7 @@
  *                is destructive: the remaining content is written back, so
  *                successive `read -u N` calls advance a shared position.
  * - `output`     a write-only file with a byte offset (`N> file`, `N>> file`).
- * - `readwrite`  `N<> file` — content plus an explicit read position.
+ * - `readwrite`  `N<> file` — raw bytes plus an explicit byte position.
  * - `dup-out`    fd duplicated from stdout/stderr (`N>&1`).
  * - `dup-in`     fd duplicated from stdin (`N<&0`).
  *
@@ -353,7 +353,7 @@ export function readFd(
 }
 
 /**
- * Advance the read position of `fd` by `count` characters.
+ * Advance the read position of `fd` by `count` bytes.
  * `input` entries keep only the unread remainder, matching bash's single
  * shared file offset: every later read continues where this one stopped —
  * including reads through a descriptor duplicated from this one, which
@@ -441,17 +441,21 @@ export async function writeFdEntry(
   }
   if (writeEntry.kind !== "readwrite") return false;
   // Independent opens may modify the file without advancing this offset.
-  const current = await ctx.fs.readFile(writeEntry.path, encoding);
+  const current = latin1FromBytes(await readBytesFrom(ctx.fs, writeEntry.path));
+  const bytes =
+    encoding === "binary"
+      ? content
+      : latin1FromBytes(encodeUtf8ToBytes(content));
   const updatedContent =
     current.slice(0, writeEntry.position).padEnd(writeEntry.position, "\0") +
-    content +
-    current.slice(writeEntry.position + content.length);
+    bytes +
+    current.slice(writeEntry.position + bytes.length);
   const updated: FdEntry = {
     ...writeEntry,
-    position: writeEntry.position + content.length,
+    position: writeEntry.position + bytes.length,
     content: updatedContent,
   };
-  await ctx.fs.writeFile(writeEntry.path, updatedContent, encoding);
+  await ctx.fs.writeFile(writeEntry.path, updatedContent, "binary");
   const raw = encodeFdEntry(updated);
   for (const fd of members) {
     if (isFdOpen(ctx, fd)) writeRawFd(ctx, fd, raw, false);
@@ -489,6 +493,25 @@ export function snapshotFds(
   const snapshot: FdSnapshot = new Map();
   for (const fd of fds) rememberFd(ctx, snapshot, fd);
   return snapshot;
+}
+
+/** A substitution owns stdout as its capture pipe, not the inherited file. */
+export async function withCapturedStdout<T>(
+  ctx: InterpreterContext,
+  execute: () => Promise<T>,
+): Promise<T> {
+  const snapshot = snapshotFds(ctx, [1]);
+  const wasClosed = ctx.state.closedStandardFds?.has(1) === true;
+  // Detach only fd 1. Copies such as fd 2 and fd 3 still own the inherited file.
+  closeFd(ctx, 1);
+  ctx.state.closedStandardFds?.delete(1);
+  try {
+    return await execute();
+  } finally {
+    restoreFds(ctx, snapshot);
+    if (wasClosed) ctx.state.closedStandardFds?.add(1);
+    else ctx.state.closedStandardFds?.delete(1);
+  }
 }
 
 /**

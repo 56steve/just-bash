@@ -6,6 +6,9 @@ import {
   setupFiles,
 } from "./fixture-runner.js";
 
+// Locked stream-device fixtures use Linux reopen semantics, not macOS fd duplication.
+// Linux open(2) creates an independent offset and honors O_TRUNC:
+// https://man7.org/linux/man-pages/man2/open.2.html
 describe("file output offsets - Real Bash Comparison", () => {
   let directory: string;
   beforeEach(async () => {
@@ -15,6 +18,16 @@ describe("file output offsets - Real Bash Comparison", () => {
     await cleanupTestDir(directory);
   });
   it.each([
+    '{ x=$(echo hi); echo "[$x]"; } >f; cat f',
+    '{ x=`echo hi`; echo "[$x]"; } >f; cat f',
+    "{ cat <(echo hi) >g; echo outer; } >f; cat f; cat g",
+    'fun() { x=$(echo hi; echo side >&2); echo "[$x]"; }; fun >f 2>&1; cat f',
+    '{ for i in $(seq 1 2); do echo "[$i]"; done; } >f; cat f',
+    '{ x=$(echo hi; echo side >&3); echo "[$x]"; } >f 3>&1; cat f',
+    '{ x=$(echo hi; exit 2); echo "[$x]"; } >f; cat f',
+    "printf éé >f; exec 3<>f; printf X >&3; printf Y >&3; cat f",
+    "printf 'é\nZZ' >f; exec 3<>f; read -r -u3 x; printf XY >&3; echo \"[$x]\"; cat f",
+    "printf 'é\nZZ' >f; exec 3<>f; read -r x <&3; printf XY >&3; echo \"[$x]\"; cat f",
     "exec 4>&1; exec >f; exec 2>/dev/stdout; echo e >&2; exec >&4; cat f; cat f",
     "{ echo a; echo b >&3; } >f 2>/dev/stdout 3>&2; cat f",
     "exec 4>&1; exec >f; exec 3>/dev/stdout; exec >&4; echo b >&3; cat f; cat f",

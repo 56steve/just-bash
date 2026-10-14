@@ -87,31 +87,6 @@ async function checkOutputRedirectTarget(
 
 const DEV_NULL = "/dev/null";
 
-/**
- * Determine the encoding to use for file I/O.
- * If all character codes are <= 127 (ASCII), use binary encoding (byte data).
- * Otherwise, use UTF-8 encoding (text with non-ASCII characters).
- * For performance, only check the first 8KB of large strings.
- *
- * Characters in the 128-255 range (e.g. Latin-1: Ü Ö Ä é è) need UTF-8
- * encoding because their multi-byte UTF-8 representation would be lost
- * if stored as single bytes via binary encoding.
- */
-function getFileEncoding(content: string): "binary" | "utf8" {
-  const SAMPLE_SIZE = 8192; // 8KB
-
-  // For large strings, only check the first 8KB
-  // This is sufficient since UTF-8 files typically have Unicode chars early
-  const checkLength = Math.min(content.length, SAMPLE_SIZE);
-
-  for (let i = 0; i < checkLength; i++) {
-    if (content.charCodeAt(i) > 127) {
-      return "utf8";
-    }
-  }
-  return "binary";
-}
-
 type PreparedDupSource = {
   kind: "entry";
   entry: FdEntry;
@@ -231,10 +206,11 @@ async function openOutputEntry(
   append: boolean,
   isClobber: boolean,
   handleWriteError = true,
+  resolvedPath?: string,
 ): Promise<
   { entry: OutputFdEntry; error?: never } | { entry?: never; error: ExecResult }
 > {
-  const filePath = ctx.fs.resolvePath(ctx.state.cwd, target);
+  const filePath = resolvedPath ?? ctx.fs.resolvePath(ctx.state.cwd, target);
   if (filePath === DEV_NULL) {
     return { entry: { kind: "output", path: DEV_NULL, append, position: 0 } };
   }
@@ -283,7 +259,11 @@ async function readInputEntry(
   const filePath = ctx.fs.resolvePath(ctx.state.cwd, target);
   try {
     const content =
-      filePath === DEV_NULL ? "" : await ctx.fs.readFile(filePath);
+      filePath === DEV_NULL
+        ? ""
+        : readwrite
+          ? latin1FromBytes(await readBytesFrom(ctx.fs, filePath))
+          : await ctx.fs.readFile(filePath);
     return readwrite
       ? {
           entry: {
@@ -627,8 +607,9 @@ async function prepareRedirectionsWithState(
     }
 
     let combinedStreamDevice = false;
-    // Stream devices copy the current destination, just like descriptor duplication.
-    // Reuse that preparation path so later redirects cannot change the captured sink.
+    let outputFilePath: string | undefined;
+    // Linux opens stream-device file destinations with the requested open flags.
+    // Live streams still capture their destination before subsequent redirects.
     if (
       (target === "/dev/stdout" || target === "/dev/stderr") &&
       (redir.operator === ">" ||
@@ -638,17 +619,29 @@ async function prepareRedirectionsWithState(
         redir.operator === "&>>" ||
         redir.operator === ">&")
     ) {
-      combinedStreamDevice =
-        redir.operator === "&>" ||
-        redir.operator === "&>>" ||
-        (redir.operator === ">&" && redir.fd == null);
-      redir = {
-        ...redir,
-        operator: ">&",
-        fd: combinedStreamDevice ? null : (redir.fd ?? 1),
-      };
-      target = target === "/dev/stdout" ? "1" : "2";
-      isDup = true;
+      const sourceFd = target === "/dev/stdout" ? 1 : 2;
+      const source = getPreparedDupSource(sourceFd, false);
+      if (!source) {
+        return fail(
+          makeResult("", `bash: ${target}: No such file or directory\n`, 1),
+          index,
+        );
+      }
+      if (source.entry.kind === "output" || source.entry.kind === "readwrite") {
+        outputFilePath = source.entry.path;
+      } else {
+        combinedStreamDevice =
+          redir.operator === "&>" ||
+          redir.operator === "&>>" ||
+          (redir.operator === ">&" && redir.fd == null);
+        redir = {
+          ...redir,
+          operator: ">&",
+          fd: combinedStreamDevice ? null : (redir.fd ?? 1),
+        };
+        target = String(sourceFd);
+        isDup = true;
+      }
     }
 
     if (redir.fdVariable) {
@@ -719,7 +712,14 @@ async function prepareRedirectionsWithState(
               index,
             );
           }
-          const opened = await openOutputEntry(ctx, target, false, false);
+          const opened = await openOutputEntry(
+            ctx,
+            target,
+            false,
+            false,
+            true,
+            outputFilePath,
+          );
           if (opened.error) return fail(opened.error, index);
           entry = opened.entry;
         } else {
@@ -755,6 +755,8 @@ async function prepareRedirectionsWithState(
           target,
           append,
           redir.operator === ">|",
+          true,
+          outputFilePath,
         );
         if (opened.error) return fail(opened.error, index);
         entry = opened.entry;
@@ -843,7 +845,14 @@ async function prepareRedirectionsWithState(
               index,
             );
           }
-          const opened = await openOutputEntry(ctx, target, false, false);
+          const opened = await openOutputEntry(
+            ctx,
+            target,
+            false,
+            false,
+            true,
+            outputFilePath,
+          );
           if (opened.error) return fail(opened.error, index);
           setFdEntry(ctx, fd, opened.entry as FdEntry);
           continue;
@@ -898,6 +907,8 @@ async function prepareRedirectionsWithState(
           target,
           redir.operator === ">>",
           redir.operator === ">|",
+          true,
+          outputFilePath,
         );
         if (opened.error) return fail(opened.error, index);
         setFdEntry(ctx, fd, opened.entry as FdEntry);
@@ -934,7 +945,14 @@ async function prepareRedirectionsWithState(
             index,
           );
         }
-        const opened = await openOutputEntry(ctx, target, false, false, false);
+        const opened = await openOutputEntry(
+          ctx,
+          target,
+          false,
+          false,
+          false,
+          outputFilePath,
+        );
         if (opened.error) return fail(opened.error, index);
         const entry = opened.entry;
         const sink = openedOutputSink(entry, effectiveFd === 2 ? 2 : 1);
@@ -1061,6 +1079,7 @@ async function prepareRedirectionsWithState(
         redir.operator === ">>" || redir.operator === "&>>",
         redir.operator === ">|",
         false,
+        outputFilePath,
       );
       if (opened.error) return fail(opened.error, index);
       const entry = opened.entry;
@@ -1278,9 +1297,6 @@ export async function applyRedirections(
   const stdoutFileEncoding: "binary" | "utf8" = stdoutIsBytes
     ? "binary"
     : "utf8";
-  const getStdoutEncoding = (_content: string): "binary" | "utf8" =>
-    stdoutFileEncoding;
-
   const { stdout: fd1Sink, stderr: fd2Sink } = outputRoutes;
 
   // Deliver content still held in the streams to each fd's final sink.
@@ -1313,14 +1329,19 @@ export async function applyRedirections(
       // is not recorded anywhere in the interpreter. This matches the
       // convention of the live-stream merge (`stdout += stderr`) used for a
       // bare `2>&1`.
-      const combined = pendingStdout + pendingStderr;
+      // stdout may already contain raw bytes; stderr is always Unicode text.
+      const combined =
+        (stdoutIsBytes
+          ? pendingStdout
+          : latin1FromBytes(encodeUtf8ToBytes(pendingStdout))) +
+        latin1FromBytes(encodeUtf8ToBytes(pendingStderr));
       if (combined !== "") {
         await writeFdEntry(
           ctx,
           fd1Sink.source.entry,
           fd1Sink.source.descriptors,
           combined,
-          getStdoutEncoding(combined),
+          "binary",
         );
       }
     } else {
@@ -1344,7 +1365,7 @@ export async function applyRedirections(
               sink.source.entry,
               sink.source.descriptors,
               content,
-              isStdout ? getStdoutEncoding(content) : getFileEncoding(content),
+              isStdout ? stdoutFileEncoding : "utf8",
             );
             break;
           case "invalid-output":

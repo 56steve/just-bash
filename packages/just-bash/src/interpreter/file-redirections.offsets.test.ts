@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Bash } from "../Bash.js";
+import { defineCommand } from "../custom-commands.js";
 import { InMemoryFs } from "../fs/in-memory-fs/in-memory-fs.js";
 import type { IFileSystem } from "../fs/interface.js";
 import { MountableFs } from "../fs/mountable-fs/mountable-fs.js";
@@ -10,17 +11,37 @@ import { OverlayFs } from "../fs/overlay-fs/overlay-fs.js";
 import { ReadWriteFs } from "../fs/read-write-fs/read-write-fs.js";
 
 const cases = [
+  ['{ x=$(echo hi); echo "[$x]"; } >f; cat f', "[hi]\n"],
+  ['{ x=`echo hi`; echo "[$x]"; } >f; cat f', "[hi]\n"],
+  ['{ for i in $(seq 1 2); do echo "[$i]"; done; } >f; cat f', "[1]\n[2]\n"],
+  [
+    'fun() { x=$(echo hi; echo side >&2); echo "[$x]"; }; fun >f 2>&1; cat f',
+    "side\n[hi]\n",
+  ],
+  [
+    '{ x=$(echo hi; echo side >&3); echo "[$x]"; } >f 3>&1; cat f',
+    "side\n[hi]\n",
+  ],
+  ['{ x=$(echo hi; exit 2); echo "[$x]"; } >f; cat f', "[hi]\n"],
+  ['{ x=$(echo "$(echo hi)"); echo "[$x]"; } >f; cat f', "[hi]\n"],
+  ["{ case x in $(echo x)) echo matched;; esac; } >f; cat f", "matched\n"],
+  ["printf éé >f; exec 3<>f; printf X >&3; printf Y >&3; cat f", "XYé"],
+  ["printf éé >f; { printf X; printf Y >&2; } 1<>f 2>&1; cat f", "XYé"],
   [
     "exec 4>&1; exec >f; exec 2>/dev/stdout; echo e >&2; exec >&4; cat f",
     "e\n",
   ],
-  ["{ echo a; echo b >&3; } >f 2>/dev/stdout 3>&2; cat f", "a\nb\n"],
+  ["{ echo a; echo b >&3; } >f 2>/dev/stdout 3>&2; cat f", "b\n"],
   [
     "exec 4>&1; exec >f; exec 3>/dev/stdout; exec >&4; echo b >&3; cat f",
     "b\n",
   ],
-  ["{ echo a; echo b >&3; } >f 3>/dev/stdout; cat f", "a\nb\n"],
-  ["{ echo a >&2; echo b >&3; } 2>f 3>/dev/stderr; cat f", "a\nb\n"],
+  ["{ echo a; echo b >&3; } >f 3>/dev/stdout; cat f", "b\n"],
+  ["{ echo a >&2; echo b >&3; } 2>f 3>/dev/stderr; cat f", "b\n"],
+  [
+    "exec 4>&1; exec >f; printf AA; exec 3>/dev/stdout; printf BB >&3; printf CC; exec >&4; cat f",
+    "BBCC",
+  ],
   ["exec 2>f; exec 3>/dev/stderr; exec 2>/dev/null; echo b >&3; cat f", "b\n"],
   ["{ echo a; echo b >&3; } >f 3>&1; cat f", "a\nb\n"],
   [
@@ -100,6 +121,70 @@ describe.each([
       stderr: "hi\n",
       exitCode: 0,
     });
+  });
+  it("captures process-substitution output independently of the enclosing file", async () => {
+    expect(
+      await bash.exec("{ cat <(echo hi) >g; echo outer; } >f; cat f"),
+    ).toMatchObject({
+      stdout: "outer\n",
+      stderr: "",
+      exitCode: 0,
+    });
+    expect(await fs.readFile("/work/f")).toBe("outer\n");
+    expect(await fs.readFile("/work/g")).toBe("hi\n");
+  });
+  it.each([
+    "read -r -u3 x",
+    "read -r x <&3",
+  ])("counts UTF-8 bytes after %s", async (read) => {
+    expect(
+      await bash.exec(
+        `printf 'é\nZZ' >f; exec 3<>f; ${read}; printf XY >&3; echo "[$x]"; cat f`,
+      ),
+    ).toMatchObject({
+      stdout: "[é]\né\nXY",
+      stderr: "",
+      exitCode: 0,
+    });
+    expect(await fs.readFile("/work/f")).toBe("é\nXY");
+  });
+  it("protects a file-backed stream device with noclobber", async () => {
+    expect(
+      await bash.exec(
+        "exec 4>&1; exec >f; set -C; echo x 2>/dev/stdout; status=$?; exec >&4; echo $status; cat f",
+      ),
+    ).toMatchObject({
+      stdout: "1\n",
+      stderr: "bash: /dev/stdout: cannot overwrite existing file\n",
+      exitCode: 0,
+    });
+    expect(await fs.readFile("/work/f")).toBe("");
+  });
+  it("names a closed stream device in its open error", async () => {
+    expect(await bash.exec("echo hi 1>&- 2>/dev/stdout")).toMatchObject({
+      stdout: "",
+      stderr: "bash: /dev/stdout: No such file or directory\n",
+      exitCode: 1,
+    });
+  });
+  it.each([
+    ">",
+    "1<>",
+  ])("preserves raw stdout and text stderr through %s", async (operator) => {
+    const stderr = `${"x".repeat(8192)}é`;
+    const mixed = defineCommand("mixed", async () => ({
+      stdout: "\xc3\xa9",
+      stdoutKind: "bytes",
+      stderr,
+      exitCode: 0,
+    }));
+    const shell = new Bash({ fs, cwd: "/work", customCommands: [mixed] });
+    expect(await shell.exec(`mixed ${operator}f 2>&1`)).toMatchObject({
+      stdout: "",
+      stderr: "",
+      exitCode: 0,
+    });
+    expect(await fs.readFile("/work/f")).toBe(`é${stderr}`);
   });
   it("closes a file binding before the redirected body runs", async () => {
     expect(await bash.exec("{ echo x; } >f 1>&-")).toMatchObject({
