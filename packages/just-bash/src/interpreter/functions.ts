@@ -207,10 +207,7 @@ export async function callFunction(
       ctx,
       execResult,
       func.redirections,
-      prepared.targets,
-      prepared.outputDestinations,
-      prepared.dupSources,
-      prepared.standardRoutes,
+      prepared.outputRoutes,
     );
   } catch (error) {
     if (error instanceof ControlFlowError && prepared) {

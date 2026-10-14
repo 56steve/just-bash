@@ -2,6 +2,75 @@ import { expect, it } from "vitest";
 import { Bash } from "../Bash.js";
 
 it.each([
+  ["echo hi &>>/dev/stdout", "hi\n", ""],
+  ["echo hi &>/dev/stderr", "", "hi\n"],
+  ["echo hi &>/dev/stdout", "hi\n", ""],
+  ["echo hi &>>/dev/stderr", "", "hi\n"],
+])("routes combined stream redirects: %s", async (script, stdout, stderr) => {
+  const bash = new Bash();
+  const before = await Promise.all([
+    bash.fs.readFile("/dev/stdout"),
+    bash.fs.readFile("/dev/stderr"),
+  ]);
+  expect(await bash.exec(script)).toMatchObject({
+    stdout,
+    stderr,
+    exitCode: 0,
+  });
+  expect(
+    await Promise.all([
+      bash.fs.readFile("/dev/stdout"),
+      bash.fs.readFile("/dev/stderr"),
+    ]),
+  ).toEqual(before);
+});
+
+it.each([
+  "cat </dev/null 2<<<hi",
+  "echo data >/tmp/d; cat </dev/null 1</tmp/d",
+])("does not replace stdin when opening another descriptor: %s", async (script) => {
+  expect(await new Bash().exec(script)).toMatchObject({
+    stdout: "",
+    stderr: "",
+    exitCode: 0,
+  });
+});
+
+it("shares a read-write sink with its standard descriptor duplicate", async () => {
+  const bash = new Bash();
+  expect(
+    await bash.exec(
+      "printf abcdef >f; { echo X; echo Y >&2; } 1<>f 2>&1; cat f",
+    ),
+  ).toMatchObject({ stdout: "X\nY\nef", stderr: "", exitCode: 0 });
+});
+
+it.each([
+  "&>",
+  "&>>",
+])("captures the current stream destination with %s", async (operator) => {
+  const bash = new Bash();
+  expect(
+    await bash.exec(`echo hi >/tmp/out ${operator}/dev/stdout 2>/tmp/error`),
+  ).toMatchObject({ stdout: "", stderr: "", exitCode: 0 });
+  expect(await bash.fs.readFile("/tmp/out")).toBe("hi\n");
+  expect(await bash.fs.readFile("/tmp/error")).toBe("");
+  expect(await bash.fs.readFile("/dev/stdout")).toBe("");
+});
+
+it("preserves stdout before a diagnostic on a shared read-write sink", async () => {
+  const bash = new Bash();
+  expect(await bash.exec("{ echo A; cat /nope; } 1<>f 2>&1")).toMatchObject({
+    stdout: "",
+    stderr: "",
+    exitCode: 1,
+  });
+  expect(await bash.fs.readFile("/home/user/f")).toBe(
+    "A\ncat: /nope: No such file or directory\n",
+  );
+});
+
+it.each([
   "1</dev/null",
   "1<<<input",
   "1<<EOF",

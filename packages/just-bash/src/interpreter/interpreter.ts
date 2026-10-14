@@ -725,10 +725,7 @@ export class Interpreter {
           this.ctx,
           baseResult,
           node.redirections,
-          preparedRedirections.targets,
-          preparedRedirections.outputDestinations,
-          preparedRedirections.dupSources,
-          preparedRedirections.standardRoutes,
+          preparedRedirections.outputRoutes,
         );
         transaction.finish();
         return redirected;
@@ -993,10 +990,7 @@ export class Interpreter {
       this.ctx,
       cmdResult,
       node.redirections,
-      preparedRedirections.targets,
-      preparedRedirections.outputDestinations,
-      preparedRedirections.dupSources,
-      preparedRedirections.standardRoutes,
+      preparedRedirections.outputRoutes,
       cmdResult.internalProducerCommand ?? commandName,
       cmdResult.internalProducerOmitsShellPrefix,
     );
