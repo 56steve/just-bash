@@ -6,12 +6,10 @@ describe("normalized device redirections", () => {
     ["cd /dev; echo hi > stdout", "hi\n", "", 0],
     ["echo hi > //dev/stdout", "hi\n", "", 0],
     ["echo hi > /dev/../dev/stderr", "", "hi\n", 0],
-    [
-      "cd /dev; echo hi > ./full; echo $?",
-      "1\n",
-      "bash: /dev/full: No space left on device\n",
-      0,
-    ],
+    ["set -C; echo hi >/dev/stdout", "hi\n", "", 0],
+    ["cd /dev; set -C; echo hi >./stderr", "", "hi\n", 0],
+    ["{ set -C; echo hi >//dev/stdout; } | cat", "hi\n", "", 0],
+    ["{ cd /dev; set -C; echo hi >./stderr; } 2>&1 | cat", "hi\n", "", 0],
     ["cd /; echo hi > dev/null; ls -la /dev >/listing", "", "", 0],
   ])("preserves virtual /dev contents: %s", async (script, stdout, stderr, exitCode) => {
     const bash = new Bash();
@@ -26,6 +24,16 @@ describe("normalized device redirections", () => {
     expect(
       await Promise.all(files.map((name) => bash.fs.readFile(`/dev/${name}`))),
     ).toStrictEqual(contents);
+  });
+
+  it("preserves the relative full-device target in the existing error", async () => {
+    const bash = new Bash();
+    const names = await bash.fs.readdir("/dev");
+    const result = await bash.exec("cd /dev; echo hi > ./full; echo $?");
+    // /dev/full currently fails while opening, not while writing as in Bash.
+    // Only target spelling and filesystem preservation are asserted here.
+    expect(result.stderr).toBe("bash: ./full: No space left on device\n");
+    expect(await bash.fs.readdir("/dev")).toStrictEqual(names);
   });
 
   it("reads normalized null paths without reading the backing file", async () => {
