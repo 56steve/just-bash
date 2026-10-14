@@ -2,6 +2,23 @@ import { expect, it } from "vitest";
 import { Bash } from "../Bash.js";
 
 it.each([
+  [
+    "echo o 1>&-; echo rc=$?",
+    "rc=1\n",
+    "bash: echo: write error: Bad file descriptor\n",
+  ],
+  ["echo o 1>&2-; echo rc=$?", "rc=0\n", "o\n"],
+  ["{ echo o >&2; } 2>&-; echo rc=$?", "rc=1\n", ""],
+  ["{ echo o >&2; } 1>&2-; echo rc=$?", "rc=1\n", ""],
+])("reports writes to closed standard descriptors: %s", async (script, stdout, stderr) => {
+  expect(await new Bash().exec(script)).toMatchObject({
+    stdout,
+    stderr,
+    exitCode: 0,
+  });
+});
+
+it.each([
   ["echo hi &>>/dev/stdout", "hi\n", ""],
   ["echo hi &>/dev/stderr", "", "hi\n"],
   ["echo hi &>/dev/stdout", "hi\n", ""],

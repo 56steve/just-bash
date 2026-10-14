@@ -206,7 +206,7 @@ export async function callFunction(
     return applyRedirections(
       ctx,
       execResult,
-      func.redirections,
+      func.redirections.length > 0,
       prepared.outputRoutes,
     );
   } catch (error) {

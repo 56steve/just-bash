@@ -724,7 +724,7 @@ export class Interpreter {
         const redirected = await applyRedirections(
           this.ctx,
           baseResult,
-          node.redirections,
+          node.redirections.length > 0,
           preparedRedirections.outputRoutes,
         );
         transaction.finish();
@@ -989,7 +989,7 @@ export class Interpreter {
     cmdResult = await applyRedirections(
       this.ctx,
       cmdResult,
-      node.redirections,
+      node.redirections.length > 0,
       preparedRedirections.outputRoutes,
       cmdResult.internalProducerCommand ?? commandName,
       cmdResult.internalProducerOmitsShellPrefix,
