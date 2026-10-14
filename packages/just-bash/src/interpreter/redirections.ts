@@ -244,15 +244,15 @@ async function openOutputEntry(
     isClobber,
   });
   if (error) return { error: makeResult("", error, 1) };
-  if (target === "/dev/full") {
+  if (filePath === "/dev/full") {
     return {
       error: makeResult("", "bash: /dev/full: No space left on device\n", 1),
     };
   }
-  if (target === "/dev/stdout") {
+  if (filePath === "/dev/stdout") {
     return { entry: { kind: "dup-out", sourceFd: 1 } };
   }
-  if (target === "/dev/stderr") {
+  if (filePath === "/dev/stderr") {
     return { entry: { kind: "dup-out", sourceFd: 2 } };
   }
   try {
