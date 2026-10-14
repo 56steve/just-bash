@@ -248,12 +248,6 @@ async function openOutputEntry(
       error: makeResult("", "bash: /dev/full: No space left on device\n", 1),
     };
   }
-  if (target === "/dev/stdout") {
-    return { entry: { kind: "dup-out", sourceFd: 1 } };
-  }
-  if (target === "/dev/stderr") {
-    return { entry: { kind: "dup-out", sourceFd: 2 } };
-  }
   try {
     if (append) await ctx.fs.appendFile(filePath, "", "binary");
     else await ctx.fs.writeFile(filePath, "", "binary");
@@ -552,7 +546,7 @@ async function prepareRedirectionsWithState(
   };
 
   for (let index = 0; index < redirections.length; index++) {
-    const redir = redirections[index];
+    let redir = redirections[index];
     const effectiveFd = effectiveRedirectFd(redir);
 
     if (redir.target.type === "HereDoc") {
@@ -602,7 +596,7 @@ async function prepareRedirectionsWithState(
     }
 
     let target: string;
-    const isDup = redir.operator === ">&" || redir.operator === "<&";
+    let isDup = redir.operator === ">&" || redir.operator === "<&";
     if (isDup) {
       if (hasQuotedMultiValueAt(ctx, redir.target as WordNode)) {
         return fail(makeResult("", "bash: $@: ambiguous redirect\n", 1), index);
@@ -630,6 +624,31 @@ async function prepareRedirectionsWithState(
         ),
         index,
       );
+    }
+
+    let combinedStreamDevice = false;
+    // Stream devices copy the current destination, just like descriptor duplication.
+    // Reuse that preparation path so later redirects cannot change the captured sink.
+    if (
+      (target === "/dev/stdout" || target === "/dev/stderr") &&
+      (redir.operator === ">" ||
+        redir.operator === ">|" ||
+        redir.operator === ">>" ||
+        redir.operator === "&>" ||
+        redir.operator === "&>>" ||
+        redir.operator === ">&")
+    ) {
+      combinedStreamDevice =
+        redir.operator === "&>" ||
+        redir.operator === "&>>" ||
+        (redir.operator === ">&" && redir.fd == null);
+      redir = {
+        ...redir,
+        operator: ">&",
+        fd: combinedStreamDevice ? null : (redir.fd ?? 1),
+      };
+      target = target === "/dev/stdout" ? "1" : "2";
+      isDup = true;
     }
 
     if (redir.fdVariable) {
@@ -936,14 +955,21 @@ async function prepareRedirectionsWithState(
           index,
         );
       }
-      if (effectiveFd === parsed.sourceFd && !parsed.move) continue;
+      if (
+        effectiveFd === parsed.sourceFd &&
+        !parsed.move &&
+        !combinedStreamDevice
+      )
+        continue;
       const sink =
         parsed.sourceFd === 1
           ? outputRoutes.stdout
           : parsed.sourceFd === 2
             ? outputRoutes.stderr
             : descriptorSink(source, effectiveFd === 2 ? 2 : 1);
-      if (
+      if (combinedStreamDevice) {
+        persistCombinedStandard(source.entry as OutputFdEntry, sink);
+      } else if (
         transaction.policy === "persistent" &&
         effectiveFd !== null &&
         effectiveFd < FIRST_USER_FD &&

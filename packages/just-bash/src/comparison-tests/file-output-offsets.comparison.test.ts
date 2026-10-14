@@ -15,6 +15,13 @@ describe("file output offsets - Real Bash Comparison", () => {
     await cleanupTestDir(directory);
   });
   it.each([
+    "exec 4>&1; exec >f; exec 2>/dev/stdout; echo e >&2; exec >&4; cat f; cat f",
+    "{ echo a; echo b >&3; } >f 2>/dev/stdout 3>&2; cat f",
+    "exec 4>&1; exec >f; exec 3>/dev/stdout; exec >&4; echo b >&3; cat f; cat f",
+    "{ echo a; echo b >&3; } >f 3>/dev/stdout; cat f",
+    "{ echo a >&2; echo b >&3; } 2>f 3>/dev/stderr; cat f",
+    "exec 2>f; exec 3>/dev/stderr; exec 2>/dev/null; echo b >&3; cat f; cat f",
+    "echo hi >/dev/stderr 2>/dev/null",
     "{ echo a; echo b >&3; } >f 3>&1; cat f",
     "exec 9>&1; exec 1>f; exec 3>&1; { exec 3>g; echo x; } >h; echo y; cat f >&9",
     "{ echo a; echo b >&3; } >f 2>&1 3>&2; cat f",

@@ -10,6 +10,18 @@ import { OverlayFs } from "../fs/overlay-fs/overlay-fs.js";
 import { ReadWriteFs } from "../fs/read-write-fs/read-write-fs.js";
 
 const cases = [
+  [
+    "exec 4>&1; exec >f; exec 2>/dev/stdout; echo e >&2; exec >&4; cat f",
+    "e\n",
+  ],
+  ["{ echo a; echo b >&3; } >f 2>/dev/stdout 3>&2; cat f", "a\nb\n"],
+  [
+    "exec 4>&1; exec >f; exec 3>/dev/stdout; exec >&4; echo b >&3; cat f",
+    "b\n",
+  ],
+  ["{ echo a; echo b >&3; } >f 3>/dev/stdout; cat f", "a\nb\n"],
+  ["{ echo a >&2; echo b >&3; } 2>f 3>/dev/stderr; cat f", "a\nb\n"],
+  ["exec 2>f; exec 3>/dev/stderr; exec 2>/dev/null; echo b >&3; cat f", "b\n"],
   ["{ echo a; echo b >&3; } >f 3>&1; cat f", "a\nb\n"],
   [
     "exec 9>&1; exec 1>f; exec 3>&1; { exec 3>g; echo x; } >h; echo y; cat f >&9",
@@ -75,6 +87,19 @@ describe.each([
       exitCode: 0,
     });
     expect(await fs.readFile("/work/f")).toBe("");
+  });
+  it("captures stderr before a later redirect replaces it", async () => {
+    expect(await bash.exec("echo hi >/dev/stderr 2>f; cat f")).toMatchObject({
+      stdout: "",
+      stderr: "hi\n",
+      exitCode: 0,
+    });
+    expect(await fs.readFile("/work/f")).toBe("");
+    expect(await bash.exec("echo hi >/dev/stderr 2>/dev/null")).toMatchObject({
+      stdout: "",
+      stderr: "hi\n",
+      exitCode: 0,
+    });
   });
   it("closes a file binding before the redirected body runs", async () => {
     expect(await bash.exec("{ echo x; } >f 1>&-")).toMatchObject({

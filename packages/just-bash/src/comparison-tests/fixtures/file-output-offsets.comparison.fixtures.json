@@ -34,6 +34,41 @@
     "stderr": "",
     "exitCode": 0
   },
+  "6605ed43db896bdf": {
+    "command": "exec 2>f; exec 3>/dev/stderr; exec 2>/dev/null; echo b >&3; cat f; cat f",
+    "files": {},
+    "stdout": "b\nb\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "8be7c211db55f13b": {
+    "command": "{ echo a; echo b >&3; } >f 3>/dev/stdout; cat f",
+    "files": {},
+    "stdout": "a\nb\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "8f86e3352e27230f": {
+    "command": "exec 4>&1; exec >f; exec 2>/dev/stdout; echo e >&2; exec >&4; cat f; cat f",
+    "files": {},
+    "stdout": "e\ne\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "933de5a85d9489de": {
+    "command": "exec 4>&1; exec >f; exec 3>/dev/stdout; exec >&4; echo b >&3; cat f; cat f",
+    "files": {},
+    "stdout": "b\nb\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "a96ca3d22e86f5f6": {
+    "command": "echo hi >/dev/stderr 2>/dev/null",
+    "files": {},
+    "stdout": "",
+    "stderr": "hi\n",
+    "exitCode": 0
+  },
   "b07fce91e9a551e4": {
     "command": "echo a >>f; { echo b; echo c >&3; } >>f 3>&1; cat f",
     "files": {},
@@ -41,10 +76,24 @@
     "stderr": "",
     "exitCode": 0
   },
+  "bbefcd873b5a3d0f": {
+    "command": "{ echo a; echo b >&3; } >f 2>/dev/stdout 3>&2; cat f",
+    "files": {},
+    "stdout": "a\nb\n",
+    "stderr": "",
+    "exitCode": 0
+  },
   "d45f73f00033e504": {
     "command": "exec 3>f; echo one >&3; echo two >&3; exec 3>&-; cat f",
     "files": {},
     "stdout": "one\ntwo\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "da6bd28cc861d1e3": {
+    "command": "{ echo a >&2; echo b >&3; } 2>f 3>/dev/stderr; cat f",
+    "files": {},
+    "stdout": "a\nb\n",
     "stderr": "",
     "exitCode": 0
   },
