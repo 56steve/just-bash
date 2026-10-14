@@ -1,0 +1,58 @@
+{
+  "1980ea4b822f06c8": {
+    "command": "printf abcdef >f; { echo X; echo Y >&2; } 1<>f 2>&1; cat f",
+    "files": {},
+    "stdout": "X\nY\nef",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "37841706591256ac": {
+    "command": "{ echo a; echo b >&3; } >f 2>&1 3>&2; cat f",
+    "files": {},
+    "stdout": "a\nb\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "3a5a8e9cf5bf06e4": {
+    "command": "{ echo oooo; echo e >&2; } >f 2>f; cat f",
+    "files": {},
+    "stdout": "e\noo\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "5283631363fb56a9": {
+    "command": "{ echo abc | tr a-z A-Z; } >f; cat f",
+    "files": {},
+    "stdout": "ABC\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "5a6f9d95f5312137": {
+    "command": "exec 9>&1; exec 1>f; exec 3>&1; { exec 3>g; echo x; } >h; echo y; cat f >&9",
+    "files": {},
+    "stdout": "y\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "b07fce91e9a551e4": {
+    "command": "echo a >>f; { echo b; echo c >&3; } >>f 3>&1; cat f",
+    "files": {},
+    "stdout": "a\nb\nc\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "d45f73f00033e504": {
+    "command": "exec 3>f; echo one >&3; echo two >&3; exec 3>&-; cat f",
+    "files": {},
+    "stdout": "one\ntwo\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "fcfe039510a57ca0": {
+    "command": "{ echo a; echo b >&3; } >f 3>&1; cat f",
+    "files": {},
+    "stdout": "a\nb\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}
