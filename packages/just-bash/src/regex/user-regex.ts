@@ -484,13 +484,13 @@ export class UserRegex implements RegexLike {
    * but JS split truncates to exactly limit elements. We implement JS behavior.
    */
   split(input: string, limit?: number): string[] {
-    if (limit === 0) {
-      return [];
-    }
     const effectiveLimit =
       limit === undefined || limit < 0
         ? this.maxResults
         : Math.min(limit, this.maxResults);
+    if (effectiveLimit === 0) {
+      return [];
+    }
     const matcher = this._re2.matcher(input);
     if (input === "") {
       return matcher.find(0) ? [] : [""];
@@ -509,7 +509,8 @@ export class UserRegex implements RegexLike {
       const end = matcher.end(0);
       if (start >= input.length) break;
       if (end === lastEnd) {
-        searchFrom = start + 1;
+        // Step over a whole code point so surrogate pairs stay together
+        searchFrom = start + ((input.codePointAt(start) ?? 0) > 0xffff ? 2 : 1);
         continue;
       }
       this.assertResultCount(result.length + 1);

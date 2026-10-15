@@ -171,6 +171,10 @@ describe("UserRegex", () => {
       const regex = new UserRegex(pattern);
       expect(regex.split(input)).toEqual(input.split(new RegExp(pattern)));
     });
+
+    it("keeps surrogate pairs together on empty matches", () => {
+      expect(new UserRegex("").split("a😀b")).toEqual(["a", "😀", "b"]);
+    });
   });
 
   describe("search()", () => {

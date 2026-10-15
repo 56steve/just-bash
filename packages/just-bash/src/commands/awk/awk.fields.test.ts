@@ -291,9 +291,9 @@ describe("awk field handling", () => {
     it("should split into characters with empty FS", async () => {
       const env = new Bash();
       const result = await env.exec(
-        `echo abc | awk 'BEGIN { FS = "" } { print NF, $2 }'`,
+        `echo a😀b | awk 'BEGIN { FS = "" } { print NF, $2 }'`,
       );
-      expect(result.stdout).toBe("3 b\n");
+      expect(result.stdout).toBe("3 😀\n");
       expect(result.exitCode).toBe(0);
     });
   });
