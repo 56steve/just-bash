@@ -799,6 +799,8 @@ export class Bash {
         }
         execEnv.set("IFS", " \t\n");
         execEnv.set("OPTIND", "1");
+        execEnv.set("SHELLOPTS", buildShellopts(this.state.options));
+        execEnv.set("BASHOPTS", buildBashopts(this.state.shoptOptions));
       }
 
       // Arithmetic command substitution keeps the calling shell's shopt
@@ -806,20 +808,6 @@ export class Bash {
       // and new shells start from the instance, as a child process would.
       const shellSource =
         callerState && effectiveOptions.subshell ? callerState : this.state;
-
-      // Describe the options this exec starts with, unless the caller
-      // exported its own values or the variable was removed (`env -i`).
-      for (const [name, value] of [
-        ["SHELLOPTS", buildShellopts(this.state.options)],
-        ["BASHOPTS", buildBashopts(shellSource.shoptOptions)],
-      ]) {
-        if (
-          effectiveOptions.newShell ||
-          (execEnv.has(name) && !exportedVars.has(name))
-        ) {
-          execEnv.set(name, value);
-        }
-      }
 
       const execState: InterpreterState = {
         ...this.state,
