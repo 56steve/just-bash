@@ -808,14 +808,14 @@ export class Bash {
         callerState && effectiveOptions.subshell ? callerState : this.state;
 
       // Describe the options this exec starts with, unless the caller
-      // exported its own values or `env -i` cleared the environment.
+      // exported its own values or the variable was removed (`env -i`).
       for (const [name, value] of [
         ["SHELLOPTS", buildShellopts(this.state.options)],
         ["BASHOPTS", buildBashopts(shellSource.shoptOptions)],
       ]) {
         if (
           effectiveOptions.newShell ||
-          (!effectiveOptions.replaceEnv && !exportedVars.has(name))
+          (execEnv.has(name) && !exportedVars.has(name))
         ) {
           execEnv.set(name, value);
         }
