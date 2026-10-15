@@ -27,7 +27,6 @@ import {
 } from "../parser/arithmetic-parser.js";
 import { Parser } from "../parser/parser.js";
 import { ArithmeticError, NounsetError } from "./errors.js";
-import { executeCommandSubstitutionSource } from "./expansion/command-substitution.js";
 import { getArrayElements, getVariable } from "./expansion.js";
 import { getArrayElement, hasArray, setArrayElement } from "./helpers/array.js";
 import type { InterpreterContext } from "./types.js";
@@ -451,8 +450,21 @@ async function evaluateArithmeticInternal(
       return await evaluate(expr.expression);
 
     case "ArithCommandSubst": {
-      const output = await executeCommandSubstitutionSource(ctx, expr.command);
-      return Number.parseInt(output.trim(), 10) || 0;
+      // Execute the command and parse the result as a number
+      if (ctx.execFn) {
+        const result = await ctx.execFn(expr.command, {
+          signal: ctx.state.signal,
+          subshell: true,
+        });
+        // Command substitution stderr should go to the shell's stderr at expansion time
+        if (result.stderr) {
+          ctx.state.expansionStderr =
+            (ctx.state.expansionStderr || "") + result.stderr;
+        }
+        const output = result.stdout.trim();
+        return Number.parseInt(output, 10) || 0;
+      }
+      return 0;
     }
 
     case "ArithBracedExpansion": {
@@ -949,8 +961,14 @@ async function evalConcatPartToStringAsync(
     case "ArithBracedExpansion":
       return await expandBracedContent(ctx, expr.content);
     case "ArithCommandSubst": {
-      const output = await executeCommandSubstitutionSource(ctx, expr.command);
-      return output.trim();
+      if (ctx.execFn) {
+        const result = await ctx.execFn(expr.command, {
+          signal: ctx.state.signal,
+          subshell: true,
+        });
+        return result.stdout.trim();
+      }
+      return "0";
     }
     case "ArithConcat": {
       let result = "";

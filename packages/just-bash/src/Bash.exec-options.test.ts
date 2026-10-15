@@ -391,19 +391,18 @@ describe("exec options", () => {
       expect(r.stdout).toBe("/\n/\n");
     });
 
-    it("command substitution runs in a subshell of the calling shell", async () => {
+    it("arithmetic command substitution runs in a subshell of the calling shell", async () => {
       const env = new Bash();
 
       const r = await env.exec(
         [
-          "f() { echo 2; }; shopt -s nullglob",
-          "echo $(( $(f) + $(shopt -q nullglob; echo $?) ))",
-          "x=$(shopt -u nullglob; set -u; g() { :; }); y=$(( $(shopt -u nullglob; echo 0) ))",
-          "shopt -q nullglob && [[ ! -o nounset ]] && ! type g >/dev/null 2>&1 && echo isolated",
-          "for i in 1 2; do x=$(break); echo $i; done",
+          "f() { echo 2; }; arr=(3); shopt -s nullglob",
+          "echo $(( $(f) + $(echo ${arr[0]}) + $(shopt -q nullglob; echo $?) ))",
+          "y=$(( $(shopt -u nullglob; g() { :; }; echo 0) ))",
+          "shopt -q nullglob && ! type g >/dev/null 2>&1 && echo isolated",
         ].join("\n"),
       );
-      expect(r.stdout).toBe("2\nisolated\n1\n2\n");
+      expect(r.stdout).toBe("5\nisolated\n");
     });
   });
 

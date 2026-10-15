@@ -671,7 +671,9 @@ export class Bash {
 
   private async execInScope(
     commandLine: string,
-    options: (ExecOptions & { newShell?: boolean }) | undefined,
+    options:
+      | (ExecOptions & { newShell?: boolean; subshell?: boolean })
+      | undefined,
     executionScope: ExecutionScope,
     execDepth: number,
     parentSignal: AbortSignal | undefined,
@@ -798,11 +800,17 @@ export class Bash {
         execEnv.set("IFS", " \t\n");
         execEnv.set("OPTIND", "1");
       }
-      // A new shell describes its own options. Other execs do too, unless the
-      // caller exported its values or `env -i` cleared the environment.
+
+      // Command substitution continues the calling shell. Child commands and
+      // new shells start from the instance, as a child process would.
+      const shellSource =
+        callerState && effectiveOptions.subshell ? callerState : this.state;
+
+      // Describe the options this exec starts with, unless the caller
+      // exported its own values or `env -i` cleared the environment.
       for (const [name, value] of [
-        ["SHELLOPTS", buildShellopts(this.state.options)],
-        ["BASHOPTS", buildBashopts(this.state.shoptOptions)],
+        ["SHELLOPTS", buildShellopts(shellSource.options)],
+        ["BASHOPTS", buildBashopts(shellSource.shoptOptions)],
       ]) {
         if (
           effectiveOptions.newShell ||
@@ -816,18 +824,18 @@ export class Bash {
         ...this.state,
         env: execEnv,
         exportedVars,
-        arrays: replaceEnv ? new Map() : cloneArrays(this.state.arrays),
+        arrays: replaceEnv ? new Map() : cloneArrays(shellSource.arrays),
         cwd: newCwd,
         previousDir:
           effectiveOptions.env?.OLDPWD ??
           (replaceEnv ? "" : this.state.previousDir),
         // Deep copy mutable objects to prevent interference
-        functions: new Map(this.state.functions),
+        functions: new Map(shellSource.functions),
         localScopes: [...this.state.localScopes],
-        options: { ...this.state.options },
-        shoptOptions: { ...this.state.shoptOptions },
-        readonlyVars: new Set(this.state.readonlyVars),
-        hashTable: new Map(this.state.hashTable),
+        options: { ...shellSource.options },
+        shoptOptions: { ...shellSource.shoptOptions },
+        readonlyVars: new Set(shellSource.readonlyVars),
+        hashTable: new Map(shellSource.hashTable),
         // Pass stdin through to commands (for bash -c with piped input).
         // The pipeline contract is "stdin is a latin1-shaped byte buffer";
         // text-shaped user input (the default) needs UTF-8 encoding here

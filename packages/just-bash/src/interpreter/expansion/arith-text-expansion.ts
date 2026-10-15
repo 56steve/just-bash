@@ -7,7 +7,6 @@
  */
 
 import type { InterpreterContext } from "../types.js";
-import { executeCommandSubstitutionSource } from "./command-substitution.js";
 import { getVariable } from "./variable.js";
 
 /**
@@ -170,7 +169,19 @@ export async function expandSubscriptForAssocArray(
         }
         // Extract and execute the command
         const cmdStr = inner.slice(i + 2, j - 1);
-        result += await executeCommandSubstitutionSource(ctx, cmdStr);
+        if (ctx.execFn) {
+          const cmdResult = await ctx.execFn(cmdStr, {
+            signal: ctx.state.signal,
+            subshell: true,
+          });
+          // Strip trailing newlines like command substitution does
+          result += cmdResult.stdout.replace(/\n+$/, "");
+          // Forward stderr to expansion stderr
+          if (cmdResult.stderr) {
+            ctx.state.expansionStderr =
+              (ctx.state.expansionStderr || "") + cmdResult.stderr;
+          }
+        }
         i = j;
       } else if (inner[i + 1] === "{") {
         // Check for ${...} - find matching }
@@ -208,7 +219,17 @@ export async function expandSubscriptForAssocArray(
         j++;
       }
       const cmdStr = inner.slice(i + 1, j);
-      result += await executeCommandSubstitutionSource(ctx, cmdStr);
+      if (ctx.execFn) {
+        const cmdResult = await ctx.execFn(cmdStr, {
+          signal: ctx.state.signal,
+          subshell: true,
+        });
+        result += cmdResult.stdout.replace(/\n+$/, "");
+        if (cmdResult.stderr) {
+          ctx.state.expansionStderr =
+            (ctx.state.expansionStderr || "") + cmdResult.stderr;
+        }
+      }
       i = j + 1;
     } else {
       result += inner[i];
