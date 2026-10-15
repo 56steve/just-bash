@@ -801,15 +801,16 @@ export class Bash {
         execEnv.set("OPTIND", "1");
       }
 
-      // Command substitution continues the calling shell. Child commands and
-      // new shells start from the instance, as a child process would.
+      // Arithmetic command substitution keeps the calling shell's shopt
+      // settings, readonly attributes, and hashed commands. Child commands
+      // and new shells start from the instance, as a child process would.
       const shellSource =
         callerState && effectiveOptions.subshell ? callerState : this.state;
 
       // Describe the options this exec starts with, unless the caller
       // exported its own values or `env -i` cleared the environment.
       for (const [name, value] of [
-        ["SHELLOPTS", buildShellopts(shellSource.options)],
+        ["SHELLOPTS", buildShellopts(this.state.options)],
         ["BASHOPTS", buildBashopts(shellSource.shoptOptions)],
       ]) {
         if (
@@ -824,15 +825,15 @@ export class Bash {
         ...this.state,
         env: execEnv,
         exportedVars,
-        arrays: replaceEnv ? new Map() : cloneArrays(shellSource.arrays),
+        arrays: replaceEnv ? new Map() : cloneArrays(this.state.arrays),
         cwd: newCwd,
         previousDir:
           effectiveOptions.env?.OLDPWD ??
           (replaceEnv ? "" : this.state.previousDir),
         // Deep copy mutable objects to prevent interference
-        functions: new Map(shellSource.functions),
+        functions: new Map(this.state.functions),
         localScopes: [...this.state.localScopes],
-        options: { ...shellSource.options },
+        options: { ...this.state.options },
         shoptOptions: { ...shellSource.shoptOptions },
         readonlyVars: new Set(shellSource.readonlyVars),
         hashTable: new Map(shellSource.hashTable),

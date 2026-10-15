@@ -24,8 +24,8 @@ import type { ProcessSubstitutionEntry } from "./process-substitution.js";
 export type InterpreterExecOptions = Omit<CommandExecOptions, "cwd"> & {
   cwd?: string;
   /**
-   * Run as a subshell of the calling shell (command substitution) instead of
-   * a child command: start from the caller's functions, arrays, and options.
+   * Run as a command substitution of the calling shell rather than a child
+   * command: keep its shopt settings, readonly attributes, and hashed commands.
    */
   subshell?: boolean;
 };
