@@ -797,6 +797,9 @@ export class Bash {
         }
         execEnv.set("IFS", " \t\n");
         execEnv.set("OPTIND", "1");
+      }
+      if (!effectiveOptions.replaceEnv || effectiveOptions.newShell) {
+        // Describe the options this exec starts with, not the caller's.
         execEnv.set("SHELLOPTS", buildShellopts(this.state.options));
         execEnv.set("BASHOPTS", buildBashopts(this.state.shoptOptions));
       }

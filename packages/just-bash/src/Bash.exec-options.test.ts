@@ -390,6 +390,15 @@ describe("exec options", () => {
       );
       expect(r.stdout).toBe("/\n/\n");
     });
+
+    it("arithmetic command substitution runs in the calling shell", async () => {
+      const env = new Bash();
+
+      const r = await env.exec(
+        "f() { echo 2; }; shopt -s nullglob; echo $(( $(f) + $(shopt -q nullglob; echo $?) ))",
+      );
+      expect(r.stdout).toBe("2\n");
+    });
   });
 
   describe("sleep command with mock clock", () => {
