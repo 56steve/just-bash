@@ -102,6 +102,7 @@ describe("AWK prospective allocation limits", () => {
     ["infinite NF", `awk 'BEGIN { NF = 1e400 }'`],
     ["field assignment", `awk 'BEGIN { $100000000 = "x" }'`],
     ["sub field target", `awk 'BEGIN { sub(/^/, "x", $100000000) }'`],
+    ["NaN sub field target", `awk 'BEGIN { sub(/^/, "x", $(sqrt(-1))) }'`],
     ["input record split", `printf 'a b c d\\n' | awk '{ print }'`],
     ["$0 split", `awk 'BEGIN { FS = ","; $0 = "a,b,c,d" }'`],
   ])("rejects %s beyond maxArrayElements", async (_kind, script) => {

@@ -118,7 +118,8 @@ export function setField(
     ctx.line = toAwkString(value);
     ctx.fields = splitFields(ctx, ctx.line);
     ctx.NF = ctx.fields.length;
-  } else if (index > 0) {
+  } else if (!(index < 0)) {
+    // Positive, or NaN, which ensureFieldCount rejects
     ensureFieldCount(ctx, index);
     ctx.fields[index - 1] = toAwkString(value);
     ctx.NF = ctx.fields.length;
