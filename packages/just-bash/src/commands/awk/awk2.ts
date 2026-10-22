@@ -147,7 +147,7 @@ export const awkCommand2: RuntimeCommand = {
     // Create runtime context
     const execFn = ctx.exec;
     const runtimeCtx = createRuntimeContext({
-      fieldSep: compileFieldSeparator(fieldSepStr, ctx.limits.maxArrayElements),
+      fieldSep: compileFieldSeparator(fieldSepStr),
       maxIterations: ctx.limits.maxAwkIterations,
       maxOutputSize: Math.min(
         ctx.limits.maxStringLength,

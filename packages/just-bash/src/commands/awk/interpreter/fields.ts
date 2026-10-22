@@ -144,43 +144,36 @@ export function setCurrentLine(ctx: AwkRuntimeContext, line: string): void {
 /**
  * Compile FS, or a split() separator string, into a field splitter.
  */
-export function compileFieldSeparator(
-  fs: string,
-  maxFields: number,
-): FieldSplitter {
+export function compileFieldSeparator(fs: string): FieldSplitter {
   if (fs === " ") {
     return splitOnWhitespace;
   }
   const literal = fs.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   // Any other single character separates fields literally, as in POSIX awk
   if (fs.length === 1) {
-    return regexSplitter(literal, maxFields);
+    return regexSplitter(literal);
   }
   try {
-    return regexSplitter(fs, maxFields);
+    return regexSplitter(fs);
   } catch {
-    return regexSplitter(literal, maxFields);
+    return regexSplitter(literal);
   }
 }
 
+// Callers bound the field count through the split limit, and ignored empty
+// matches must not use up the regex's own result cap
+const UNCAPPED = { maxResults: Number.MAX_SAFE_INTEGER };
+
 /**
  * Split on a regex the way awk does: empty matches never separate fields,
- * except that an empty pattern splits into characters. The regex result cap
- * sits one past the field limit so an oversized record fails instead of
- * being silently truncated.
+ * except that an empty pattern splits into characters.
  */
-export function regexSplitter(
-  pattern: string,
-  maxFields: number,
-): FieldSplitter {
-  const limits = {
-    maxResults: Math.min(maxFields + 1, Number.MAX_SAFE_INTEGER),
-  };
+export function regexSplitter(pattern: string): FieldSplitter {
   if (pattern === "") {
-    const regex = createUserRegex("", "", limits);
+    const regex = createUserRegex("", "", UNCAPPED);
     return (input, limit) => regex.split(input, limit);
   }
-  const regex = createUserRegex(pattern, "g", limits);
+  const regex = createUserRegex(pattern, "g", UNCAPPED);
   return (input, limit = Number.POSITIVE_INFINITY) => {
     if (input === "") return [];
     const fields: string[] = [];
@@ -202,5 +195,5 @@ export function regexSplitter(
  */
 export function setFieldSeparator(ctx: AwkRuntimeContext, fs: string): void {
   ctx.FS = fs;
-  ctx.fieldSep = compileFieldSeparator(fs, ctx.maxArrayElements);
+  ctx.fieldSep = compileFieldSeparator(fs);
 }

@@ -239,8 +239,8 @@ async function awkSplit(
   const limit = available < 0xfffffffe ? available + 1 : undefined;
   const splitter =
     sepExpr?.type === "regex"
-      ? regexSplitter(sepExpr.pattern, available)
-      : compileFieldSeparator(sepStr, available);
+      ? regexSplitter(sepExpr.pattern)
+      : compileFieldSeparator(sepStr);
 
   const parts = splitter(str, limit);
   if (parts.length > available) {

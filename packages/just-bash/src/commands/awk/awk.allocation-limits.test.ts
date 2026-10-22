@@ -59,6 +59,16 @@ describe("AWK prospective allocation limits", () => {
     expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
   });
 
+  it("does not count ignored empty separator matches as fields", async () => {
+    const bash = new Bash({ executionLimits: { maxArrayElements: 3 } });
+    const result = await bash.exec(
+      `printf 'bbbbbb\\n' | awk -F'a*' '{ print NF, split($0, parts, "a*") }'`,
+    );
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toBe("1 1\n");
+    expect(result.exitCode).toBe(0);
+  });
+
   it("sizes split() after evaluating the separator", async () => {
     const bash = new Bash({ executionLimits: { maxArrayElements: 3 } });
     const result = await bash.exec(
