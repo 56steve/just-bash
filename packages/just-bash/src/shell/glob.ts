@@ -273,9 +273,14 @@ export class GlobExpander {
       const flags = await Promise.all(
         batch.map(async (path) => {
           try {
+            this.checkOpsLimit(); // Count stat operation
             return (await this.fs.stat(this.fs.resolvePath(this.cwd, path)))
               .isDirectory;
-          } catch {
+          } catch (error) {
+            // ExecutionLimitError must propagate
+            if (error instanceof ExecutionLimitError) {
+              throw error;
+            }
             return false;
           }
         }),

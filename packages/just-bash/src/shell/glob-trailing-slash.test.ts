@@ -54,4 +54,16 @@ describe("glob with a trailing slash and globstar", () => {
     const result = await bash.exec("echo */");
     expect(result.stdout).toBe("dir/ linkdir/\n");
   });
+
+  it("counts the stats of directory symlinks against the glob operation limit", async () => {
+    const bash = new Bash({
+      files: { "/w/dir/f": "x" },
+      cwd: "/w",
+      executionLimits: { maxGlobOperations: 4 },
+    });
+    await bash.exec("for i in 1 2 3 4 5 6; do ln -s dir link$i; done");
+    const result = await bash.exec("echo */");
+    expect(result.exitCode).toBe(126);
+    expect(result.stderr).toContain("Glob operation limit exceeded");
+  });
 });
