@@ -147,10 +147,6 @@ const SKIP_TESTS: Map<string, string> = new Map<string, string>([
     "T.split:test at line 118",
     "Test uses diff $TEMP0 $TEMP1 pattern - expected output equals input",
   ],
-  [
-    "T.split:test at line 215",
-    "split() with regex [\\r\\n]+ not splitting on newlines correctly",
-  ],
 ]);
 
 /**

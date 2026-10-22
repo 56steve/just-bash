@@ -288,6 +288,16 @@ describe("awk field handling", () => {
       expect(result.exitCode).toBe(0);
     });
 
+    it.each([
+      ["FS", `BEGIN { FS = "[,:]"; print split("a,b:c", parts) }`],
+      ["a string separator", `BEGIN { print split("a,b:c", parts, "[,:]") }`],
+    ])("should treat %s as a regex in split()", async (_kind, program) => {
+      const env = new Bash();
+      const result = await env.exec(`awk '${program}'`);
+      expect(result.stdout).toBe("3\n");
+      expect(result.exitCode).toBe(0);
+    });
+
     it("should split into characters with empty FS", async () => {
       const env = new Bash();
       const result = await env.exec(
