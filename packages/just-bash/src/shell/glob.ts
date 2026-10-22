@@ -122,7 +122,7 @@ export class GlobExpander {
 
     return results.filter((path) => {
       // Get the basename for matching
-      const basename = path.split("/").pop() || path;
+      const basename = path.replace(/\/$/, "").split("/").pop() || path;
 
       // Filter . and .. when GLOBIGNORE is set OR globskipdots is enabled
       if (
@@ -481,6 +481,13 @@ export class GlobExpander {
               // No more segments - add this path to results
               if (!dirsOnly || entry.isDirectory) {
                 matchPromises.push(Promise.resolve([newResultPrefix]));
+              } else if (entry.isSymbolicLink) {
+                // A symlink counts as a directory when its target is one
+                matchPromises.push(
+                  this.filterDirectories([newFsPath]).then((found) =>
+                    found.length > 0 ? [newResultPrefix] : [],
+                  ),
+                );
               }
             } else if (entry.isDirectory) {
               // More segments to match and this is a directory - recurse
@@ -632,7 +639,9 @@ export class GlobExpander {
     } else {
       if (dirsOnly && !filePattern && beforeDoubleStar !== ".") {
         // `dir/**/` also matches dir itself (zero levels)
-        results.push(beforeDoubleStar);
+        if ((await this.filterDirectories([beforeDoubleStar])).length > 0) {
+          results.push(beforeDoubleStar);
+        }
       }
       await this.walkDirectory(
         beforeDoubleStar,
