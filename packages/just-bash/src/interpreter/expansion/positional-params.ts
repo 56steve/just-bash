@@ -720,10 +720,34 @@ export async function handleSimplePositionalExpansion(
 }
 
 /**
+ * Parameters a default/alternative expansion can test: names, array elements
+ * other than [@] and [*], positional numbers and single-character specials.
+ */
+const AT_ALTERNATIVE_TARGET =
+  /^(?:[a-zA-Z_][a-zA-Z0-9_]*(?:\[(?![@*]\])[^\]]+\])?|\d+|[?#$!*@-])$/;
+
+/** Literal text that cannot take part in globbing or splitting. */
+function isInertWordPart(part: WordPart): boolean {
+  switch (part.type) {
+    case "SingleQuoted":
+    case "DoubleQuoted":
+    case "Escaped":
+      return true;
+    case "Literal":
+      return !/[*?[\\]/.test(part.value);
+    default:
+      return false;
+  }
+}
+
+/**
  * Whether a default/alternative word is exactly "$@" (or "${@}"), or a bare $@
  * when the whole expansion is already inside double quotes.
  */
-function isQuotedAtWord(word: WordNode | undefined, inDoubleQuotes: boolean) {
+function isQuotedAtWord(
+  word: WordNode | undefined,
+  inDoubleQuotes: boolean,
+): boolean {
   if (!word || word.parts.length !== 1) return false;
   const part = word.parts[0];
   const isAt = (p: WordPart): boolean =>
@@ -736,29 +760,43 @@ function isQuotedAtWord(word: WordNode | undefined, inDoubleQuotes: boolean) {
 
 /**
  * Handle ${var-"$@"}, ${var:-"$@"}, ${var+"$@"} and ${var:+"$@"}, with or
- * without surrounding double quotes. When the word is selected, each
- * positional parameter becomes its own field, as with a plain "$@".
+ * without surrounding double quotes and adjacent quoted text. When the word is
+ * selected, each positional parameter becomes its own field, as with a plain
+ * "$@": the prefix joins the first field and the suffix joins the last.
  */
 export async function handleAtDefaultOrAlternative(
   ctx: InterpreterContext,
   wordParts: WordPart[],
+  expandPart: ExpandPartFn,
 ): Promise<PositionalExpansionResult> {
-  if (wordParts.length !== 1) return null;
-  const outer = wordParts[0];
-  const inDoubleQuotes = outer.type === "DoubleQuoted";
-  const paramPart = inDoubleQuotes
-    ? outer.parts.length === 1
-      ? outer.parts[0]
-      : null
-    : outer;
+  // Locate the expansion and the parts around it.
+  let siblings: WordPart[];
+  let inDoubleQuotes = false;
+  if (wordParts.length === 1 && wordParts[0].type === "DoubleQuoted") {
+    siblings = wordParts[0].parts;
+    inDoubleQuotes = true;
+  } else {
+    siblings = wordParts;
+  }
+  const index = siblings.findIndex(
+    (p) =>
+      p.type === "ParameterExpansion" &&
+      (p.operation?.type === "DefaultValue" ||
+        p.operation?.type === "UseAlternative"),
+  );
+  if (index === -1) return null;
+  const paramPart = siblings[index];
   if (
-    !paramPart ||
     paramPart.type !== "ParameterExpansion" ||
     (paramPart.operation?.type !== "DefaultValue" &&
       paramPart.operation?.type !== "UseAlternative") ||
     !isQuotedAtWord(paramPart.operation.word, inDoubleQuotes) ||
-    !/^(?:[a-zA-Z_][a-zA-Z0-9_]*|\d+)$/.test(paramPart.parameter)
+    !AT_ALTERNATIVE_TARGET.test(paramPart.parameter)
   ) {
+    return null;
+  }
+  const around = siblings.filter((_, i) => i !== index);
+  if (!inDoubleQuotes && !around.every(isInertWordPart)) {
     return null;
   }
 
@@ -769,10 +807,31 @@ export async function handleAtDefaultOrAlternative(
   const useWord = op.type === "DefaultValue" ? treatAsUnset : !treatAsUnset;
   if (!useWord) return null;
 
+  let prefix = "";
+  for (let i = 0; i < index; i++) {
+    prefix += await expandPart(ctx, siblings[i]);
+  }
+  let suffix = "";
+  for (let i = index + 1; i < siblings.length; i++) {
+    suffix += await expandPart(ctx, siblings[i]);
+  }
+
   const numParams = Number.parseInt(ctx.state.env.get("#") || "0", 10);
+  if (numParams === 0) {
+    // "$@" with no parameters vanishes unless text surrounds it or the
+    // expansion is inside double quotes, where it leaves one empty field.
+    const combined = prefix + suffix;
+    return {
+      values:
+        combined || inDoubleQuotes || wordParts.length > 1 ? [combined] : [],
+      quoted: true,
+    };
+  }
   const values: string[] = [];
   for (let i = 1; i <= numParams; i++) {
     values.push(ctx.state.env.get(String(i)) ?? "");
   }
+  values[0] = prefix + values[0];
+  values[values.length - 1] += suffix;
   return { values, quoted: true };
 }

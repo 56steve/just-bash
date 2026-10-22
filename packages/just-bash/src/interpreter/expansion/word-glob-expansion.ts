@@ -505,6 +505,7 @@ async function handlePositionalExpansionCases(
     const atAlternativeResult = await handleAtDefaultOrAlternative(
       ctx,
       wordParts,
+      deps.expandPart,
     );
     if (atAlternativeResult !== null) {
       return atAlternativeResult;

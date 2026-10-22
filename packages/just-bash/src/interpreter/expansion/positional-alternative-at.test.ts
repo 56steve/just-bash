@@ -49,4 +49,52 @@ f \${1+"$*"}`);
     expect(result.stdout).toBe("n=1 [a b c d] [] []\n");
     expect(result.exitCode).toBe(0);
   });
+
+  it.each([
+    ['f "${x-"$@"}"', "n=1 [] [] []\n"],
+    ['f "${x-$@}"', "n=1 [] [] []\n"],
+    ['f pre${x:-"$@"}post', "n=1 [prepost] [] []\n"],
+  ])("with no positional parameters: %s", async (call, expected) => {
+    const bash = new Bash();
+    const result = await bash.exec(`${COUNT_FN}
+set --
+${call}`);
+    expect(result.stdout).toBe(expected);
+    expect(result.exitCode).toBe(0);
+  });
+
+  it.each([
+    'f pre${x:-"$@"}post',
+    'f "pre${x:-"$@"}post"',
+    'f "pre${x:-$@}post"',
+  ])("attaches surrounding text to the first and last field: %s", async (call) => {
+    const bash = new Bash();
+    const result = await bash.exec(`${COUNT_FN}
+set -- a "b c" d
+${call}`);
+    expect(result.stdout).toBe("n=3 [prea] [b c] [dpost]\n");
+    expect(result.exitCode).toBe(0);
+  });
+
+  it.each([
+    'arr=(q r); f ${arr[5]:-"$@"}',
+    'arr=(q r); f ${arr[5]-"$@"}',
+    'true; f ${?+"$@"}',
+    'f ${#:+"$@"}',
+  ])("accepts array elements and special parameters as the target: %s", async (call) => {
+    const bash = new Bash();
+    const result = await bash.exec(`${COUNT_FN}
+set -- a "b c" d
+${call}`);
+    expect(result.stdout).toBe("n=3 [a] [b c] [d]\n");
+    expect(result.exitCode).toBe(0);
+  });
+
+  it("keeps an array element that is set", async () => {
+    const bash = new Bash();
+    const result = await bash.exec(`${COUNT_FN}
+set -- a "b c" d
+arr=(q r); f \${arr[0]:-"$@"}`);
+    expect(result.stdout).toBe("n=1 [q] [] []\n");
+  });
 });
