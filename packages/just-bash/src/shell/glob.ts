@@ -213,6 +213,22 @@ export class GlobExpander {
    * Expand a single glob pattern
    */
   async expand(pattern: string): Promise<string[]> {
+    // A trailing slash restricts matches to directories and is kept on each
+    // result, so `*/` yields `a/ b/` rather than every entry without the slash.
+    const trailingSlashes = /\/+$/.exec(pattern)?.[0];
+    if (trailingSlashes && pattern.length > trailingSlashes.length) {
+      const matches = await this.expand(
+        pattern.slice(0, -trailingSlashes.length),
+      );
+      const directories: string[] = [];
+      for (const match of matches) {
+        if (await this.isDirectory(match)) {
+          directories.push(match + trailingSlashes);
+        }
+      }
+      return directories;
+    }
+
     // Reject patterns with excessive ** segments to prevent combinatorial explosion
     if (this.globstar) {
       const segments = pattern.split("/");
@@ -248,6 +264,21 @@ export class GlobExpander {
 
     // Apply GLOBIGNORE filtering
     return this.filterGlobignore(results);
+  }
+
+  private async isDirectory(path: string): Promise<boolean> {
+    this.checkOpsLimit(); // Count stat operation
+    try {
+      return (await this.fs.stat(this.fs.resolvePath(this.cwd, path)))
+        .isDirectory;
+    } catch (error) {
+      // ExecutionLimitError must propagate
+      if (error instanceof ExecutionLimitError) {
+        throw error;
+      }
+      // Entry vanished or can't be stat'd, so it is not a match
+      return false;
+    }
   }
 
   /**
