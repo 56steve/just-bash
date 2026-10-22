@@ -298,6 +298,25 @@ describe("awk field handling", () => {
       expect(result.exitCode).toBe(0);
     });
 
+    it.each([
+      ["FS", `echo axbxxc | awk -F'a*' '{ print NF, $2 }'`, "2 xbxxc\n"],
+      [
+        "split()",
+        `awk 'BEGIN { print split("axbxxc", parts, "a*"), parts[2] }'`,
+        "2 xbxxc\n",
+      ],
+      [
+        "an empty or padded split()",
+        `awk 'BEGIN { print split("", a, ","), split("  a b ", b) }'`,
+        "0 2\n",
+      ],
+    ])("should split like awk for %s", async (_kind, script, expected) => {
+      const env = new Bash();
+      const result = await env.exec(script);
+      expect(result.stdout).toBe(expected);
+      expect(result.exitCode).toBe(0);
+    });
+
     it("should split into characters with empty FS", async () => {
       const env = new Bash();
       const result = await env.exec(

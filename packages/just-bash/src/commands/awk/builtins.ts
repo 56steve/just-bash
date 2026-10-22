@@ -8,17 +8,14 @@ import { BoundedStringBuilder } from "../../bounded-builder.js";
 import { utf8ByteLength } from "../../encoding.js";
 import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
-import {
-  createUserRegex,
-  type RegexLike,
-  type UserRegex,
-} from "../../regex/index.js";
+import { createUserRegex, type UserRegex } from "../../regex/index.js";
 import type { AwkExpr } from "./ast.js";
 import type { AwkRuntimeContext } from "./interpreter/context.js";
 import {
   compileFieldSeparator,
   ensureFieldCount,
   rebuildLine,
+  regexSplitter,
   splitFields,
 } from "./interpreter/fields.js";
 import type { AwkValue } from "./interpreter/types.js";
@@ -238,24 +235,14 @@ async function awkSplit(
   const available =
     ctx.maxArrayElements - ctx.arrayElementCount + previousCount;
   // Produce one part past the limit so an oversized split fails rather than
-  // being truncated. Split limits are uint32s, and regex separators carry
-  // their own result cap.
+  // being truncated. Split limits are uint32s.
   const limit = available < 0xfffffffe ? available + 1 : undefined;
-  const regexLimits = {
-    maxResults: Math.min(available + 1, Number.MAX_SAFE_INTEGER),
-  };
+  const splitter =
+    sepExpr?.type === "regex"
+      ? regexSplitter(sepExpr.pattern, available)
+      : compileFieldSeparator(sepStr, available);
 
-  // A string separator, like FS, is a regex unless it is a single character
-  let sep: RegexLike;
-  if (sepExpr?.type === "regex") {
-    sep = createUserRegex(sepExpr.pattern, "", regexLimits);
-  } else if (sepStr === " ") {
-    sep = createUserRegex("\\s+", "", regexLimits);
-  } else {
-    sep = compileFieldSeparator(sepStr, available);
-  }
-
-  const parts = sep.split(str, limit);
+  const parts = splitter(str, limit);
   if (parts.length > available) {
     throw new ExecutionLimitError(
       `array element limit exceeded (${ctx.maxArrayElements})`,
