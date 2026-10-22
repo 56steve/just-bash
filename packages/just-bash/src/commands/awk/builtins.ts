@@ -226,6 +226,14 @@ async function awkSplit(
   }
   const arrayName = arrayExpr.name;
 
+  // Evaluate the separator before sizing the split, since its side effects
+  // may add array elements
+  const sepExpr = args[2];
+  const sepStr =
+    sepExpr && sepExpr.type !== "regex"
+      ? toAwkString(await evaluator.evalExpr(sepExpr))
+      : ctx.FS;
+
   const previousCount = Object.keys(ctx.arrays[arrayName] ?? {}).length;
   const available =
     ctx.maxArrayElements - ctx.arrayElementCount + previousCount;
@@ -239,17 +247,12 @@ async function awkSplit(
 
   // A string separator, like FS, is a regex unless it is a single character
   let sep: RegexLike;
-  const sepExpr = args[2];
   if (sepExpr?.type === "regex") {
     sep = createUserRegex(sepExpr.pattern, "", regexLimits);
+  } else if (sepStr === " ") {
+    sep = createUserRegex("\\s+", "", regexLimits);
   } else {
-    const sepStr = sepExpr
-      ? toAwkString(await evaluator.evalExpr(sepExpr))
-      : ctx.FS;
-    sep =
-      sepStr === " "
-        ? createUserRegex("\\s+", "", regexLimits)
-        : compileFieldSeparator(sepStr, available);
+    sep = compileFieldSeparator(sepStr, available);
   }
 
   const parts = sep.split(str, limit);
