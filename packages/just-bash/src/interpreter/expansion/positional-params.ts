@@ -22,6 +22,7 @@ import { escapeRegex } from "../helpers/regex.js";
 import type { InterpreterContext } from "../types.js";
 import { patternToRegex } from "./pattern.js";
 import { applyPatternRemoval } from "./pattern-removal.js";
+import { getVariable, isVariableSet } from "./variable.js";
 
 /**
  * Result type for positional parameter expansion handlers.
@@ -716,4 +717,62 @@ export async function handleSimplePositionalExpansion(
     params[params.length - 1] + suffix,
   ];
   return { values: result, quoted: true };
+}
+
+/**
+ * Whether a default/alternative word is exactly "$@" (or "${@}"), or a bare $@
+ * when the whole expansion is already inside double quotes.
+ */
+function isQuotedAtWord(word: WordNode | undefined, inDoubleQuotes: boolean) {
+  if (!word || word.parts.length !== 1) return false;
+  const part = word.parts[0];
+  const isAt = (p: WordPart): boolean =>
+    p.type === "ParameterExpansion" && p.parameter === "@" && !p.operation;
+  if (part.type === "DoubleQuoted") {
+    return part.parts.length === 1 && isAt(part.parts[0]);
+  }
+  return inDoubleQuotes && isAt(part);
+}
+
+/**
+ * Handle ${var-"$@"}, ${var:-"$@"}, ${var+"$@"} and ${var:+"$@"}, with or
+ * without surrounding double quotes. When the word is selected, each
+ * positional parameter becomes its own field, as with a plain "$@".
+ */
+export async function handleAtDefaultOrAlternative(
+  ctx: InterpreterContext,
+  wordParts: WordPart[],
+): Promise<PositionalExpansionResult> {
+  if (wordParts.length !== 1) return null;
+  const outer = wordParts[0];
+  const inDoubleQuotes = outer.type === "DoubleQuoted";
+  const paramPart = inDoubleQuotes
+    ? outer.parts.length === 1
+      ? outer.parts[0]
+      : null
+    : outer;
+  if (
+    !paramPart ||
+    paramPart.type !== "ParameterExpansion" ||
+    (paramPart.operation?.type !== "DefaultValue" &&
+      paramPart.operation?.type !== "UseAlternative") ||
+    !isQuotedAtWord(paramPart.operation.word, inDoubleQuotes) ||
+    !/^(?:[a-zA-Z_][a-zA-Z0-9_]*|\d+)$/.test(paramPart.parameter)
+  ) {
+    return null;
+  }
+
+  const op = paramPart.operation;
+  const isSet = await isVariableSet(ctx, paramPart.parameter);
+  const isEmpty = (await getVariable(ctx, paramPart.parameter, false)) === "";
+  const treatAsUnset = !isSet || (op.checkEmpty === true && isEmpty);
+  const useWord = op.type === "DefaultValue" ? treatAsUnset : !treatAsUnset;
+  if (!useWord) return null;
+
+  const numParams = Number.parseInt(ctx.state.env.get("#") || "0", 10);
+  const values: string[] = [];
+  for (let i = 1; i <= numParams; i++) {
+    values.push(ctx.state.env.get(String(i)) ?? "");
+  }
+  return { values, quoted: true };
 }
