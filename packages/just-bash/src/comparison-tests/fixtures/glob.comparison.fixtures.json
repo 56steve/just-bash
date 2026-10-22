@@ -21,6 +21,26 @@
     "stderr": "",
     "exitCode": 0
   },
+  "1cb15fa278632b5f": {
+    "command": "echo *//",
+    "files": {
+      "a/file.txt": "a",
+      "b.txt": "b"
+    },
+    "stdout": "a/\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "2b49ebb4b64f9ced": {
+    "command": "GLOBIGNORE='a'; echo */",
+    "files": {
+      "a/file.txt": "a",
+      "b/file.txt": "b"
+    },
+    "stdout": "a/ b/\n",
+    "stderr": "",
+    "exitCode": 0
+  },
   "34061471e21f2f7b": {
     "command": "cat data/*/config.json",
     "files": {
@@ -54,6 +74,16 @@
     "stderr": "",
     "exitCode": 0
   },
+  "6ff68a3c4e1e5da1": {
+    "command": "GLOBIGNORE='a/'; echo */",
+    "files": {
+      "a/file.txt": "a",
+      "b/file.txt": "b"
+    },
+    "stdout": "b/\n",
+    "stderr": "",
+    "exitCode": 0
+  },
   "71ed22308ca718e0": {
     "command": "echo */*/*/*.txt",
     "files": {
@@ -73,6 +103,17 @@
       "file10.txt": "10"
     },
     "stdout": "file1.txt file2.txt\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "839eac0fe76a93f6": {
+    "command": "echo */",
+    "files": {
+      "a/file.txt": "a",
+      "a.b/file.txt": "ab",
+      "a-b/file.txt": "a-b"
+    },
+    "stdout": "a-b/ a.b/ a/\n",
     "stderr": "",
     "exitCode": 0
   },

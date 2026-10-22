@@ -140,4 +140,30 @@ describe("glob expansion - Real Bash Comparison", () => {
     });
     await compareOutputs(env, testDir, "echo */");
   });
+
+  it("should sort trailing-slash matches with the slash included", async () => {
+    const env = await setupFiles(testDir, {
+      "a/file.txt": "a",
+      "a.b/file.txt": "ab",
+      "a-b/file.txt": "a-b",
+    });
+    await compareOutputs(env, testDir, "echo */");
+  });
+
+  it("should collapse repeated trailing slashes to one", async () => {
+    const env = await setupFiles(testDir, {
+      "a/file.txt": "a",
+      "b.txt": "b",
+    });
+    await compareOutputs(env, testDir, "echo *//");
+  });
+
+  it("should apply GLOBIGNORE to matches that keep the trailing slash", async () => {
+    const env = await setupFiles(testDir, {
+      "a/file.txt": "a",
+      "b/file.txt": "b",
+    });
+    await compareOutputs(env, testDir, "GLOBIGNORE='a/'; echo */");
+    await compareOutputs(env, testDir, "GLOBIGNORE='a'; echo */");
+  });
 });
