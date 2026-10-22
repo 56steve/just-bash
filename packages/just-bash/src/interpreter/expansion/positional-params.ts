@@ -741,6 +741,24 @@ function producesMultipleFields(part: WordPart): boolean {
   return word ? word.parts.some(producesMultipleFields) : false;
 }
 
+/** Whether expanding a part can neither assign a variable nor run code. */
+function isSideEffectFree(part: WordPart): boolean {
+  switch (part.type) {
+    case "Literal":
+    case "SingleQuoted":
+    case "Escaped":
+      return true;
+    case "DoubleQuoted":
+      return part.parts.every(isSideEffectFree);
+    case "ParameterExpansion":
+      return (
+        !part.operation && !/\[[^\]]*[^a-zA-Z0-9_$\]]/.test(part.parameter)
+      );
+    default:
+      return false;
+  }
+}
+
 /** Literal text that cannot take part in globbing or splitting. */
 function isInertWordPart(part: WordPart): boolean {
   switch (part.type) {
@@ -811,7 +829,9 @@ export async function handleAtDefaultOrAlternative(
     return null;
   }
   const around = siblings.filter((_, i) => i !== index);
-  if (around.some(producesMultipleFields)) {
+  // An earlier part could assign the tested variable, so it must be expanded
+  // first; leave such words to the normal path.
+  if (!around.every(isSideEffectFree) || around.some(producesMultipleFields)) {
     return null;
   }
   if (!inDoubleQuotes && !around.every(isInertWordPart)) {
