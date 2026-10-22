@@ -721,10 +721,25 @@ export async function handleSimplePositionalExpansion(
 
 /**
  * Parameters a default/alternative expansion can test: names, array elements
- * other than [@] and [*], positional numbers and single-character specials.
+ * with a side-effect-free subscript (so probing it cannot change what the
+ * normal path reads later), positional numbers and single-character specials.
  */
 const AT_ALTERNATIVE_TARGET =
-  /^(?:[a-zA-Z_][a-zA-Z0-9_]*(?:\[(?![@*]\])[^\]]+\])?|\d+|[?#$!*@-])$/;
+  /^(?:[a-zA-Z_][a-zA-Z0-9_]*(?:\[[a-zA-Z0-9_$]+\])?|\d+|[?#$!*@-])$/;
+
+/** Whether a part can expand to several fields, such as "$@" or "${a[@]}". */
+function producesMultipleFields(part: WordPart): boolean {
+  if (part.type === "DoubleQuoted") {
+    return part.parts.some(producesMultipleFields);
+  }
+  if (part.type !== "ParameterExpansion") return false;
+  if (/^[@*]$|\[[@*]\]$/.test(part.parameter)) return true;
+  const word =
+    part.operation && "word" in part.operation
+      ? part.operation.word
+      : undefined;
+  return word ? word.parts.some(producesMultipleFields) : false;
+}
 
 /** Literal text that cannot take part in globbing or splitting. */
 function isInertWordPart(part: WordPart): boolean {
@@ -796,6 +811,9 @@ export async function handleAtDefaultOrAlternative(
     return null;
   }
   const around = siblings.filter((_, i) => i !== index);
+  if (around.some(producesMultipleFields)) {
+    return null;
+  }
   if (!inDoubleQuotes && !around.every(isInertWordPart)) {
     return null;
   }
